@@ -10,7 +10,7 @@ ddx:
 
 ## Status
 
-Proposed
+Superseded by [ADR-003](ADR-003-adopt-heimq-engine-crates.md)
 
 ## Context
 
