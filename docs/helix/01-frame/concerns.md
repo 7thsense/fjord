@@ -20,6 +20,18 @@ Project concerns declare active cross-cutting context for downstream work.
 | correctness-testing | `area:test`, `area:protocol` | Kafka compatibility failures are subtle | Use standard clients, protocol conformance, fault injection, and performance tools before making compatibility claims |
 | security-and-tenancy | `area:api`, `area:infra` | Kafka deployments commonly require auth, ACLs, TLS/SASL, and tenant isolation | Scope initial security honestly; keep authorization metadata separate from log payload bytes |
 
+## Stack Slots
+
+| Slot | Filler | Source |
+|------|--------|--------|
+| language-runtime | Rust (cargo workspace; `kafka-protocol`, `tokio`, `bytes`) | Operator decision — matches object-log and niflheim; recorded from implementation plan M1 |
+| datastore | S3-compatible object storage via `object-log` | By design (ADR-001); durable metadata path per ADR-004 |
+| deploy-target | Self-hosted (binary + object store; no hosted control plane) | By design (PRD FR-32) |
+| e2e-framework | Standard Kafka clients and tools (Java client, kcat/librdkafka, kafka-go, Kafka perf CLIs) | By design (TP-001) — Kafka compatibility is the e2e harness |
+
+Web-app slots (frontend-framework, auth-provider) do not apply: fjord is a
+protocol service with no UI; auth is Kafka SASL/TLS/ACL surface (L3).
+
 ## Concern Conflicts
 
 | Conflict | Resolution |

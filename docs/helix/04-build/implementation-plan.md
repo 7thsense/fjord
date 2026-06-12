@@ -27,7 +27,8 @@ Slices are labeled M1-M6 and referenced by those labels across fjord docs.
 - Create Rust service crate.
 - Implement Kafka frame IO, header version selection, handler registry, and
   ApiVersions.
-- Add Metadata skeleton with a static single-node topic registry.
+- Add Metadata skeleton with a static single-node topic registry, emitting
+  ADR-003 emulated-leader responses (one owner per partition).
 - Add Niflheim-informed connection reader/writer split.
 - Gate: unit tests plus `kcat -L` against local server.
 
@@ -47,8 +48,14 @@ Slices are labeled M1-M6 and referenced by those labels across fjord docs.
 
 ### M4: Metadata and Routing
 
-- Implement topic/partition metadata state.
-- Implement synthetic leader/owner routing and stale metadata behavior.
+- Implement topic/partition metadata state behind the metadata-plane
+  interface (in-memory first; durable backend per ADR-004 after SPIKE-001
+  passes).
+- Implement ADR-003 owner routing and stale metadata behavior
+  (`NOT_LEADER_OR_FOLLOWER`, epoch persisted before announcement).
+- Until CreateTopics lands at L3, topics for M3-M5 work are created through a
+  bootstrap seam (declarative topic config applied at startup); the seam is
+  test/ops tooling, not Kafka API surface.
 - Gate: clients reroute or retry correctly after reassignment and node loss.
 
 ### M5: Consumer Groups and Offsets
@@ -107,10 +114,17 @@ commands, client versions, object-log version, and backend modes.
 
 - M1 can start immediately.
 - M2 can start after M1 has enough code to prove the shared API.
-- M3 waits for object-log conformance and object backend hardening.
-- M4 can start with an in-memory metadata backend but cannot claim durability
-  until TD-002's backend decision is implemented.
-- M5 waits for M4.
+- M3 waits for object-log conformance and object backend hardening. fjord
+  consumes object-log as a path/git dependency pinned to a recorded commit
+  SHA until object-log publishes versions; every TP evidence record cites the
+  pinned SHA.
+- M4 can start with an in-memory metadata backend but cannot implement or
+  claim durable metadata until SPIKE-001 passes the ADR-004 latency bars.
+- SPIKE-001 can run any time after object-log's local/S3-compatible stores
+  are usable; it should complete before M4's durable backend work begins.
+- M5 waits for M4 and is governed by TD-004.
+- The first build/no-build review (validation checklist, bead
+  `fjord-42864fe0`) completes before M3.
 - M6 runs throughout but only becomes a production gate after M3-M5.
 
 ## Exit Criteria

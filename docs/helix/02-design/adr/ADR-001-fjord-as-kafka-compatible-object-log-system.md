@@ -128,12 +128,18 @@ to build around `object-log` and test an embeddable object-log core.
 
 ## Open Follow-Up ADRs
 
-1. Metadata/control-plane backend and consistency model.
-2. Client-visible leader/follower and any-node routing model.
-3. Fetch index, cache, and object-read strategy.
-4. Consumer group coordinator and committed offset storage.
-5. Idempotent producer and transaction state model.
-6. Retention, compaction, and object-log segment lifecycle.
-7. Security: TLS, SASL, ACLs, and multi-tenant isolation.
+1. Metadata/control-plane backend and consistency model — **ADR-004**
+   (accepted as direction; confirmation gated on SPIKE-001).
+2. Client-visible leader/follower and any-node routing model — **ADR-003**
+   (accepted).
+3. Fetch index, cache, and object-read strategy — open.
+4. Consumer group coordinator and committed offset storage — designed in
+   **TD-004** (no separate ADR needed; decisions recorded in ADR-004/TD-004).
+5. Idempotent producer and transaction state model — open.
+6. Retention, compaction, and object-log segment lifecycle — open (interacts
+   with object-log M2 and ADR-004 internal-topic compaction).
+7. Security: TLS, SASL, ACLs, and multi-tenant isolation — open (L1 plumbing
+   vs L3 enforcement intent recorded in API-001 principle 6).
 8. Strategic differentiation review versus WarpStream, AutoMQ, Bufstream, and
-   Kafka Diskless Topics.
+   Kafka Diskless Topics — operationalized in the build/no-build validation
+   checklist (first review before M3).

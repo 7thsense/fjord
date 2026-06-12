@@ -29,9 +29,13 @@ Acks map onto object-log's `AckMode` (CONTRACT-001): `acks=0` maps to
 `AckMode::None`, which may return before durability but must not imply
 committed offsets (object-log returns no offsets for uncommitted appends).
 `acks=all` maps to `AckMode::All`, object-log's durable commit boundary.
-`acks=1` maps to `AckMode::Leader`, which the object backend may map to `All`
-or reject; Fjord must pick one behavior per deployment profile rather than
-weaken safety silently, because Fjord has no leader-local durable boundary.
+`acks=1` maps to `AckMode::Leader`, and the **default decided behavior
+(API-001, 2026-06-12) is upgrade to the durable commit boundary** — the
+object backend maps `Leader` to `All`, so `acks=1` producers get durable
+acknowledgements with higher-than-classic-Kafka latency, disclosed in the
+latency/cost profiles. A deployment profile may opt into rejecting `acks=1`
+instead. Silent weaker-than-durable behavior is never permitted, because
+Fjord has no leader-local durable boundary.
 
 ## Fetch Mapping
 

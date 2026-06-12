@@ -21,16 +21,17 @@ depend on object-log commit boundaries; local node disk is cache only.
 
 ## FJORD-FEAT-003: Metadata and Routing Control Plane
 
-Own topics, partitions, synthetic leaders, node membership, leader epochs,
-partition epochs, and routing metadata. The design must avoid a required hosted
-control plane and must document whether durable metadata is object-log internal
-topics, object storage, or a self-hosted metadata store.
+Own topics, partitions, emulated leaders (ADR-003), node membership, leader
+epochs, partition epochs, and routing metadata. Durable metadata follows
+ADR-004: object-log internal topics as the primary path (gated on SPIKE-001),
+self-hosted Postgres only as fallback, hosted control plane never.
 
 ## FJORD-FEAT-004: Consumer Groups and Offsets
 
 Implement FindCoordinator, JoinGroup, SyncGroup, Heartbeat, LeaveGroup,
 OffsetCommit, and OffsetFetch for supported clients. Group and offset state must
-survive node loss.
+survive node loss. Designed in TD-004 (classic group protocol; coordinator =
+owner of the group's `__fjord_groups` partition).
 
 ## FJORD-FEAT-005: Fetch Indexes and Cache
 
@@ -46,5 +47,7 @@ profiles for object-storage-backed Kafka workloads.
 
 Continuously compare Fjord with WarpStream, AutoMQ, Bufstream, and Kafka
 Diskless Topics. Stop or redirect the project if Fjord loses its open,
-self-hostable, object-log-reusable differentiation.
+self-hostable, object-log-reusable differentiation. Pass criteria, cadence,
+and evidence form are defined in the build/no-build validation checklist;
+first review completes before M3.
 

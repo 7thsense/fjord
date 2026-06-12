@@ -40,22 +40,25 @@ metadata lives.
 
 ## Direction
 
-Fjord should prefer object-log internal topics for durable metadata if group and
-offset latency can be made acceptable. Postgres may be supported as an optional
-self-hosted small-scale control-plane mode, but not as a required hosted data
-plane dependency. etcd/ZooKeeper are fallback references, not preferred
-requirements.
+**Decided by ADR-004 (gated on SPIKE-001)**: object-log internal topics are
+the primary durable metadata path. Postgres exists only as the spike-failure
+fallback — an optional self-hosted mode behind the same metadata-plane
+interface, never a required dependency. etcd/ZooKeeper are rejected for the
+core product. SPIKE-001 must pass its latency bars before M4 implements the
+durable backend; M4 builds against an in-memory implementation of the
+metadata-plane interface in the meantime.
 
 ## Leader Model
 
-Kafka clients expect broker leaders. Fjord can expose synthetic leaders while
-internally serving from any eligible node:
+**Decided by ADR-003**: emulated single leader per partition for L1/L2.
 
-- Metadata assigns a topic partition to a node for client routing.
-- Non-owner nodes either proxy, return `NOT_LEADER_OR_FOLLOWER`, or redirect
-  by updated Metadata according to the chosen mode.
+- Metadata assigns exactly one owner node per topic partition; replica/ISR
+  lists carry only that owner.
+- Non-owner nodes return `NOT_LEADER_OR_FOLLOWER`; they do not proxy or
+  redirect. Clients refresh metadata and reroute.
 - Leader epoch changes are persisted before clients are told about a new owner.
 - Object-log manifest ordering remains authoritative for committed records.
+- Any-node serving with reshaped Metadata is a post-L2 routing optimization.
 
 ## Testing
 

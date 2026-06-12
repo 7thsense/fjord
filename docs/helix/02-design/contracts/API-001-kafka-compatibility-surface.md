@@ -25,6 +25,19 @@ spec. It identifies the compatibility obligations that must map onto
    supply Kafka metadata, coordinator, and visibility semantics around them.
 4. Local disk may improve fetch/cache performance but cannot be required for
    acknowledged durability.
+5. **Version floor (decided 2026-06-12)**: fjord supports each API from its
+   first flexible version (KIP-482) upward — modern clients only; legacy
+   non-flexible versions are explicitly unsupported and rejected with
+   `UNSUPPORTED_VERSION`. One bootstrap exception: ApiVersions **requests**
+   must still be parsed at legacy versions (v0+), because version negotiation
+   itself starts there and the error path must remain v0-decodable. Exact
+   per-API floors are pinned in TD-001's matrix and validated by the fixture
+   clients before each level is claimed.
+6. **SASL/TLS intent**: L1 ships the connection-level *plumbing* (TLS
+   termination hooks, SASL handshake scaffolding in the gateway and shared
+   crate) with enforcement off; authentication/authorization *enforcement*
+   and ACLs are L3 surface (PRD P2). FEAT-001's "SASL/TLS hooks" and the
+   PRD's L3 security scope refer to these two different things.
 
 ## P0 Protocol Surfaces to Specify
 
@@ -51,8 +64,14 @@ spec. It identifies the compatibility obligations that must map onto
   and clients may round-robin when neither key nor partition is set.
 - `acks=all` is the strongest initial compatibility target: the response must
   wait until object-log makes records durable in object storage.
-- `acks=1` is an open design question because classic Kafka maps it to leader
-  local append, while fjord has no durable local leader log.
+- `acks=1` (decided 2026-06-12): fjord **upgrades it to the durable commit
+  boundary by default** — same behavior as `acks=all`, acknowledged only
+  after object-log durable commit. fjord has no leader-local durable log, so
+  the classic leader-append meaning does not exist; upgrading keeps standard
+  clients and tools working at the cost of higher-than-expected ack latency,
+  which the published latency/cost profiles (FR-27) must disclose. A
+  deployment profile may opt into rejecting `acks=1` instead; silent
+  weaker-than-durable behavior is never an option.
 - `acks=0` may accept without durability claims, but metrics and docs must make
   loss windows clear.
 - Producer idempotence requires producer id, producer epoch, sequence number,
@@ -72,23 +91,16 @@ spec. It identifies the compatibility obligations that must map onto
 
 ### Metadata and Leadership
 
-Kafka clients expect partition leaders and refresh metadata on errors. fjord
-must choose one model:
+Kafka clients expect partition leaders and refresh metadata on errors.
+**Decided (ADR-003)**: for L1/L2 fjord uses an emulated single leader per
+partition — Metadata assigns one owner node, non-owners return
+`NOT_LEADER_OR_FOLLOWER`, and clients reroute by refreshing metadata. Leader
+epoch changes are persisted before the new owner is announced.
 
-1. **Emulated leader**: metadata assigns a node as leader for each partition;
-   non-leaders return Kafka stale-leader errors.
-2. **Any-node service with synthetic leaders**: metadata may point all clients
-   through load-balanced endpoints while fjord internally routes requests.
-3. **Leaderless protocol-compatible extension**: only viable if standard
-   clients continue to behave correctly.
-
-The choice blocks Produce, Fetch, ListOffsets, and OffsetForLeaderEpoch.
-
-WarpStream shows a likely path: manipulate Metadata responses so clients route
-to healthy, preferably zone-local agents even though the underlying data plane
-has no real leader partitions. fjord must decide whether to copy that pattern,
-use synthetic per-AZ leaders, or choose a simpler first version with explicit
-tradeoffs.
+WarpStream-style any-node serving with reshaped, zone-aware Metadata
+responses remains the likely post-L2 routing optimization; the leaderless
+protocol extension is rejected. See ADR-003 for the full decision record and
+alternatives.
 
 ### Consumer Groups and Offsets
 
@@ -96,12 +108,12 @@ tradeoffs.
 - OffsetCommit/OffsetFetch must be durable and efficient.
 - Rebalance state must include group id, members, subscriptions, assignments,
   generation/member epoch, protocol type, and heartbeat/session timers.
-- The metadata/control plane may store offsets directly or store them as an
-  internal object-log topic, but the choice must be explicit.
-- If the product goal is S3-only durable state, offset and group metadata must
-  either be stored in object-log/internal topics or in an object-storage-backed
-  metadata mechanism; Postgres/etcd-style durable metadata would need an
-  explicit exception.
+- **Decided (ADR-004, gated on SPIKE-001)**: committed offsets and group
+  metadata are stored as records in the internal object-log topic
+  `__fjord_groups`; the group coordinator is the owner of the group's
+  internal-topic partition (TD-004). A self-hosted Postgres mode exists only
+  as the spike-failure fallback and as an explicit exception to S3-only
+  durability; a hosted metadata service is never required.
 
 ## object-log Dependency Contract
 

@@ -28,17 +28,24 @@ extraction path for shared Kafka wire scaffolding.
 
 ## Initial API Matrix
 
-| API | Key | Level | Notes |
-|-----|-----|-------|-------|
-| ApiVersions | 18 | L1 | Required first request for most clients |
-| Metadata | 3 | L1 | Routes topics/partitions according to chosen leader model |
-| Produce | 0 | L1 | Maps to object-log append once data plane is ready |
-| Fetch | 1 | L1 | Maps to object-log read once data plane is ready |
-| ListOffsets | 2 | L1 | Required by consumers for offset discovery |
-| FindCoordinator | 10 | L2 | Required for groups |
-| JoinGroup/SyncGroup/Heartbeat/LeaveGroup | 11/14/12/13 | L2 | Group coordinator |
-| OffsetCommit/OffsetFetch | 8/9 | L2 | Durable group offsets |
-| CreateTopics/DescribeConfigs | 19/32 | L3 | Admin compatibility |
+Version floor (API-001 principle 5, decided 2026-06-12): each API is
+supported from its **first flexible version** (KIP-482) upward. Older
+non-flexible versions get `UNSUPPORTED_VERSION`, except that ApiVersions
+requests must parse at v0+ because negotiation bootstraps there. The floors
+below are the expected first-flexible versions; each is pinned exactly, and
+validated against the fixture clients, when its handler lands.
+
+| API | Key | Version floor | Level | Notes |
+|-----|-----|---------------|-------|-------|
+| ApiVersions | 18 | v3 (requests parsed from v0) | L1 | Required first request for most clients |
+| Metadata | 3 | v9 | L1 | Routes topics/partitions per ADR-003 emulated leaders |
+| Produce | 0 | v9 | L1 | Maps to object-log append once data plane is ready |
+| Fetch | 1 | v12 | L1 | Maps to object-log read once data plane is ready |
+| ListOffsets | 2 | v6 | L1 | Required by consumers for offset discovery |
+| FindCoordinator | 10 | v3 | L2 | Returns owner of the group's `__fjord_groups` partition (TD-004) |
+| JoinGroup/SyncGroup/Heartbeat/LeaveGroup | 11/14/12/13 | v6/v4/v4/v4 | L2 | Group coordinator (TD-004) |
+| OffsetCommit/OffsetFetch | 8/9 | v8/v6 | L2 | Durable group offsets |
+| CreateTopics/DescribeConfigs | 19/32 | v5/v4 | L3 | Admin compatibility |
 
 ## Niflheim-Informed Design Choices
 

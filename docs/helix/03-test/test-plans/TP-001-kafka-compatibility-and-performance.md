@@ -52,8 +52,8 @@ explicitly listed as design-gated in the Coverage Notes.
 
 | ID | Scenario | Requirement Coverage | Expected Result |
 |----|----------|----------------------|-----------------|
-| T1 | ApiVersions with supported and unsupported versions | FR-1, FR-3, FR-4 | Correct version list or Kafka-compatible unsupported-version error |
-| T2 | Metadata for existing and missing topics | FR-2, FR-19 | Clients can route or receive expected topic/partition errors |
+| T1 | ApiVersions with supported and unsupported versions | FR-1, FR-3, FR-4 | Version list matches the flexible-version floors in TD-001; below-floor requests get `UNSUPPORTED_VERSION`; legacy ApiVersions requests (v0+) still negotiate |
+| T2 | Metadata for existing and missing topics | FR-2, FR-19 | Single owner per partition per ADR-003; missing topics return expected errors; clients route to the owner |
 | T3 | Produce batch with `acks=all` | FR-6, FR-7, FR-9, FR-23 | Offsets returned only after object-log durable commit |
 | T4 | Produce/fetch round trip | FR-5, FR-11, FR-13 | Consumer reads records in partition offset order |
 | T5 | Node loss after acknowledged produce | FR-7, FR-21, FR-25, FR-28 | Replacement node fetches acknowledged records from object storage |
@@ -63,8 +63,8 @@ explicitly listed as design-gated in the Coverage Notes.
 | T9 | Object-store transient failure | FR-4, FR-30 | Produce/fetch return retryable Kafka-compatible errors; no false ack |
 | T10 | Tiny-object production config | FR-24, FR-27 | Config is rejected or marked test-only |
 | T11 | Out-of-order object writes | FR-31 | Fetch follows metadata/manifest ordering, not object creation order |
-| T12 | Metadata leader reshaping | FR-19, FR-32 | Standard clients reroute according to fjord's documented metadata model |
-| T13 | Produce with `acks=0`, `acks=1`, and `acks=all` | FR-8 | Each mode follows the documented durability mapping; `acks=1` is rejected or upgraded per profile, never silently weakened |
+| T12 | Owner reassignment and stale routing | FR-19, FR-32 | Requests to non-owners return `NOT_LEADER_OR_FOLLOWER`; clients refresh metadata and reroute to the new owner (ADR-003); epoch persisted before announcement |
+| T13 | Produce with `acks=0`, `acks=1`, and `acks=all` | FR-8 | `acks=all` and `acks=1` acknowledge only after object-log durable commit (`acks=1` upgraded by default per API-001); `acks=0` returns no committed offsets; reject-mode profile refuses `acks=1` |
 | T14 | Fetch response watermark fields | FR-14 | High watermark, log start offset, last stable offset, and leader epoch match documented object-storage-backed semantics |
 | T15 | Epoch coherence after reassignment | FR-20 | Leader epoch, partition epoch, and manifest state agree after node failure and reassignment; stale-epoch writes are fenced |
 | T16 | Metrics surface scrape | FR-29 | Produce/fetch latency, object operation counts, segment size, cache hit rate, rebalance, and metadata error metrics are exposed |
@@ -126,9 +126,11 @@ Every performance claim must record:
 ## Known Gaps
 
 - No implementation exists yet.
-- The metadata/control-plane backend is not selected.
-- Leader/follower semantics are undecided.
+- The metadata backend direction is decided (ADR-004) but unconfirmed until
+  SPIKE-001 passes its latency bars.
+- Leader semantics are decided (ADR-003, emulated single leader for L1/L2).
 - The build/no-build differentiation review against WarpStream-class systems is
-  not complete.
+  not complete (gates defined in the build/no-build validation checklist;
+  first review before M3).
 - Transactions and read-committed isolation are not designed.
 - Security tests await the TLS/SASL/ACL design.

@@ -187,25 +187,29 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 | Consumer group coordination is a larger distributed-systems surface than planned | L2 slips or ships incorrect rebalance semantics | Group coordinator design is a named follow-up ADR before M5; standard-client rebalance tests gate L2 |
 | object-log hardening (S3 adapter, retention, conformance) slips | fjord M3+ blocked | Implementation plan orders protocol/metadata work first; object-log milestones tracked in its own repo |
 
+## Resolved Design Questions
+
+| Question | Resolution | Recorded In |
+|----------|------------|-------------|
+| Leader model / Metadata API emulation | Emulated single leader per partition for L1/L2; non-owners return `NOT_LEADER_OR_FOLLOWER`; any-node routing deferred post-L2 | ADR-003 |
+| Synthetic per-AZ leaders | Deferred with the any-node routing optimization | ADR-003 |
+| Metadata store / S3-only metadata durability | object-log internal topics are the primary durable metadata path, confirmed by SPIKE-001 latency bars; self-hosted Postgres only as spike-failure fallback; hosted service never | ADR-004, SPIKE-001 |
+| object-log as metadata authority | Manifest stays the ordering authority; coordination state lives in internal object-log topics, not the manifest | ADR-004 |
+| Consumer group authority | Coordinator = owner of the group's `__fjord_groups` partition; classic group protocol for L2 | TD-004 |
+| Offset storage | Committed offsets are records in `__fjord_groups`, durable at `AckMode::All` before the commit response | TD-004, ADR-004 |
+| acks=1 semantics | Upgraded to durable commit by default, disclosed in latency/cost profiles; reject available per profile | API-001, TD-003 |
+| Protocol version floor | First flexible version (KIP-482) per API; legacy versions rejected except ApiVersions request parsing | API-001, TD-001 |
+
 ## Open Design Questions
 
 | Question | Why It Matters | Blocks |
 |----------|----------------|--------|
-| Leader model | Kafka clients expect leaders, while object-storage systems may prefer any-node serving | Metadata, Produce, Fetch |
-| Metadata store | Kafka compatibility needs coordination state beyond object bytes; fjord also wants no required hosted control plane | Groups, offsets, epochs, admin APIs |
-| S3-only metadata durability | If durable state must be S3-only, group and metadata serialization may need object-log/internal-topic design rather than Postgres/etcd | Build/no-build |
-| Metadata API emulation | Standard clients route by Metadata leader assignments even if fjord has no real leaders | Produce, Fetch, load balancing |
-| Synthetic per-AZ leaders | Zone-local routing may need Metadata manipulation similar to WarpStream | Cost, availability |
-| Fetch index/cache shape | Object reads can dominate latency and cost | Consumer performance |
-| Consumer group authority | Group coordinator state is correctness-critical | L2 compatibility |
-| Offset storage | Offset commits must be durable and efficiently fetchable | Consumer restart correctness |
-| object-log as metadata authority | The manifest may be enough for ordering but not enough for group coordination | Architecture ADR |
+| Fetch index/cache shape | Object reads can dominate latency and cost | Consumer performance (pre-M3; ADR-001 follow-up #3) |
 | Small produce latency/cost | Single-message or tiny-batch producers may be expensive or slow on object storage | Product fit |
-| Idempotent producers | Duplicate suppression requires producer state and sequence tracking | Safe retries |
+| Idempotent producers | Duplicate suppression requires producer state and sequence tracking | Safe retries (ADR-001 follow-up #5) |
 | Transactions/read_committed | Exactly-once compatibility requires transaction markers and offset transactions | L4 compatibility |
-| Compaction and retention | Kafka topics often rely on delete/compact policies | Operational compatibility |
-| Protocol version floor | Supporting too many versions early increases surface area; core APIs include ApiVersions, Metadata, Produce, Fetch, OffsetFetch/Commit, JoinGroup/SyncGroup/Heartbeat, FindCoordinator, ListOffsets, CreateTopics, DescribeConfigs | Test scope |
-| Security model | Kafka users expect TLS/SASL/ACLs | Production readiness |
+| Compaction and retention | Kafka topics often rely on delete/compact policies; internal metadata topics need compaction early (ADR-004) | Operational compatibility (ADR-001 follow-up #6) |
+| Security model | Kafka users expect TLS/SASL/ACLs; L1 ships plumbing only (API-001 principle 6) | Production readiness (ADR-001 follow-up #7) |
 
 ## Acceptance Test Sketches
 
