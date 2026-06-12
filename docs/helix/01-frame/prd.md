@@ -23,7 +23,9 @@ compatibility levels. Produce/fetch, metadata, offsets, and consumer groups are
 P0 design surfaces. Transactions, exactly-once semantics, compaction, ACLs, and
 the full admin surface may be phased, but they must not be hidden.
 
-## Problem
+## Problem and Goals
+
+### Problem
 
 Kafka is operationally expensive when durable active log data is tied to
 stateful broker disks and cross-zone replication. Object storage can reduce
@@ -33,7 +35,7 @@ Kafka-compatible system that makes the tradeoff explicit: simpler operations and
 lower storage cost in exchange for object-storage-shaped batching, indexing,
 and fetch/cache design.
 
-## Goals
+### Goals
 
 1. Provide a Kafka-compatible service surface for standard producers and
    consumers.
@@ -46,7 +48,7 @@ and fetch/cache design.
 6. Establish whether fjord has enough differentiation from WarpStream, AutoMQ,
    Bufstream, and Kafka Diskless Topics to justify implementation.
 
-## Non-Goals
+### Non-Goals
 
 - Implement code or a Kafka wire protocol in this documentation pass.
 - Build a Kafka Connect S3 sink or classic Kafka tiered-storage plugin.
@@ -57,7 +59,9 @@ and fetch/cache design.
 - Pretend fjord is differentiated if its design collapses into a less mature
   WarpStream clone.
 
-## Personas
+## Users and Scope
+
+### Personas
 
 | Persona | Goal | Pain |
 |---------|------|------|
@@ -97,9 +101,30 @@ If fjord cannot satisfy these gates, the strategic recommendation should change
 from "build fjord" to "use or contribute to WarpStream/AutoMQ/Bufstream/Kafka
 Diskless Topics and keep object-log as an embeddable non-broker library."
 
+## Requirements
+
+### Must Have (P0)
+
+- Kafka protocol and client surface design (FR-1 — FR-5)
+- Produce path with explicit durability semantics (FR-6 — FR-10)
+- Fetch path over object-log segments (FR-11 — FR-14, FR-31)
+- Consumer groups and durable offsets (FR-15 — FR-18)
+- Metadata, leadership, and coordination boundary (FR-19 — FR-22, FR-32)
+- Object storage and object-log reuse rules (FR-23 — FR-26)
+
+### Should Have (P1)
+
+- Operations, performance, and observability surfaces (FR-27 — FR-30)
+
+### Nice to Have (P2)
+
+- Transactions, exactly-once, compaction, ACLs/quotas, and broad admin API
+  coverage — explicitly phased behind compatibility levels L3/L4 and never
+  implied before they are designed and tested.
+
 ## Functional Requirements
 
-### Kafka Protocol and Client Surface
+### Subsystem: Kafka Protocol and Client Surface
 
 - **FR-1** — fjord MUST target the Apache Kafka binary TCP protocol, including request/response framing and API version negotiation.
 - **FR-2** — fjord MUST support Metadata behavior sufficient for clients to discover brokers, topics, partitions, and the node they should address.
@@ -107,7 +132,7 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 - **FR-4** — fjord MUST return Kafka-compatible error codes for unsupported API versions, stale metadata, unavailable partitions, authorization failures, and transient storage errors.
 - **FR-5** — fjord MUST support standard Kafka client batching for produce and fetch requests across topics and partitions.
 
-### Produce Path
+### Subsystem: Produce Path
 
 - **FR-6** — Producers MUST be able to append records with topic, partition, key, value, headers, timestamp, producer metadata, and batch attributes.
 - **FR-7** — Acknowledged produce responses MUST correspond to records durably committed through object-log to object storage at the configured ack boundary.
@@ -115,7 +140,7 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 - **FR-9** — fjord MUST support per-partition monotonic offsets and preserve Kafka ordering semantics for records accepted into a partition.
 - **FR-10** — Idempotent producer state, producer epochs, and sequence numbers MUST be designed before claiming compatibility with idempotent producers.
 
-### Fetch Path
+### Subsystem: Fetch Path
 
 - **FR-11** — Consumers MUST be able to fetch records by topic partition and offset using Kafka Fetch semantics for the supported API versions.
 - **FR-12** — fjord MUST define how object-log segment indexes, object reads, local caches, and prefetch serve low-latency fetch without making local disk authoritative.
@@ -123,14 +148,14 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 - **FR-14** — fjord MUST define high-watermark, log-start-offset, last-stable-offset, and leader-epoch behavior for object-storage-backed partitions.
 - **FR-31** — fjord MUST define whether object-log manifests or a separate metadata store are the source of ordering when object files are written out of offset order.
 
-### Consumer Groups and Offsets
+### Subsystem: Consumer Groups and Offsets
 
 - **FR-15** — fjord MUST support durable consumer offset commit and fetch behavior for supported clients.
 - **FR-16** — fjord MUST define the authority for group coordination, membership, heartbeat, assignment, generation/member epoch, and rebalance state.
 - **FR-17** — Consumer offset state MUST survive node loss and MUST NOT depend on local broker disk.
 - **FR-18** — Group coordinator routing and FindCoordinator behavior MUST be specified before L2 compatibility.
 
-### Metadata, Leadership, and Coordination
+### Subsystem: Metadata, Leadership, and Coordination
 
 - **FR-19** — fjord MUST decide whether client-visible partition leadership is emulated over leaderless internals, assigned to nodes, or mapped to a metadata service.
 - **FR-20** — Leader epoch, partition epoch, producer snapshots, and object-log manifest state MUST be coherent after node failure and reassignment.
@@ -138,19 +163,29 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 - **FR-22** — fjord MUST define a metadata/control-plane backend boundary for topics, partitions, epochs, groups, offsets, producer state, ACLs, and service membership.
 - **FR-32** — fjord MUST decide whether durable metadata is stored in object storage, in object-log internal topics, or in a separate self-hosted metadata store; a hosted metadata service MUST NOT be required for the core product.
 
-### Object Storage and object-log
+### Subsystem: Object Storage and object-log
 
 - **FR-23** — Durable record data MUST be stored through object-log segments in S3-compatible object storage.
 - **FR-24** — Production profiles MUST batch records across partitions where compatible with ordering and visibility semantics, avoiding one-object-per-record and tiny-object patterns.
 - **FR-25** — Segment manifests, indexes, checksums, and retention metadata MUST make replay deterministic after node loss.
 - **FR-26** — object-log MUST remain embeddable and product-neutral; fjord-specific protocol/coordinator state MUST stay in fjord.
 
-### Operations, Performance, and Observability
+### Subsystem: Operations, Performance, and Observability
 
 - **FR-27** — fjord MUST publish latency/cost profiles that explain expected produce ack latency, fetch latency, object operation counts, and storage cost.
 - **FR-28** — fjord nodes MUST be replaceable without copying partition data between nodes.
 - **FR-29** — fjord MUST expose metrics for produce/fetch latency, object PUT/GET/LIST counts, segment size, cache hit rate, group rebalance activity, and metadata errors.
 - **FR-30** — fjord MUST support failure tests for node loss, object-store transient failure, metadata-store conflict, corrupted segment, stale epoch, and cache loss.
+
+## Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| fjord collapses into a less mature WarpStream clone | Project produces no differentiated value | Build/no-build gate (FEAT-007) reviewed at every milestone; stop condition recorded in ADR-001 |
+| S3-only durable metadata proves impractical for groups/offsets/epochs | Core differentiation weakens; coordination latency unacceptable | TD-002 keeps object-log internal topics preferred with optional self-hosted Postgres mode as an explicit, justified exception |
+| Object-storage commit latency breaks real producer workloads | Product fit fails for latency-sensitive streams | Publish latency/cost profiles (FR-27); target latency-tolerant workloads first; batching thresholds configurable |
+| Consumer group coordination is a larger distributed-systems surface than planned | L2 slips or ships incorrect rebalance semantics | Group coordinator design is a named follow-up ADR before M5; standard-client rebalance tests gate L2 |
+| object-log hardening (S3 adapter, retention, conformance) slips | fjord M3+ blocked | Implementation plan orders protocol/metadata work first; object-log milestones tracked in its own repo |
 
 ## Open Design Questions
 
@@ -172,7 +207,7 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 | Protocol version floor | Supporting too many versions early increases surface area; core APIs include ApiVersions, Metadata, Produce, Fetch, OffsetFetch/Commit, JoinGroup/SyncGroup/Heartbeat, FindCoordinator, ListOffsets, CreateTopics, DescribeConfigs | Test scope |
 | Security model | Kafka users expect TLS/SASL/ACLs | Production readiness |
 
-## Acceptance Sketches
+## Acceptance Test Sketches
 
 | Requirement | Scenario | Expected Result |
 |-------------|----------|-----------------|

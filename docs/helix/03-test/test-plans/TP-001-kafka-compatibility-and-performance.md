@@ -9,7 +9,7 @@ ddx:
 
 # TP-001: Kafka Compatibility and Performance Test Plan
 
-## Strategy
+## Testing Strategy
 
 fjord must be tested like a Kafka-compatible system: with standard clients,
 standard Kafka command-line tools, protocol-level fixtures, failure injection,
@@ -43,7 +43,12 @@ This plan is design-time only. No implementation exists yet.
 | Java Kafka client integration tests | Canonical protocol/client compatibility |
 | `kafka-go` or `sarama` tests | Non-JVM client compatibility |
 
-## P0 Test Scenarios
+## Coverage Requirements
+
+Every PRD functional requirement maps to at least one scenario below or is
+explicitly listed as design-gated in the Coverage Notes.
+
+### Critical Paths (P0)
 
 | ID | Scenario | Requirement Coverage | Expected Result |
 |----|----------|----------------------|-----------------|
@@ -59,6 +64,26 @@ This plan is design-time only. No implementation exists yet.
 | T10 | Tiny-object production config | FR-24, FR-27 | Config is rejected or marked test-only |
 | T11 | Out-of-order object writes | FR-31 | Fetch follows metadata/manifest ordering, not object creation order |
 | T12 | Metadata leader reshaping | FR-19, FR-32 | Standard clients reroute according to fjord's documented metadata model |
+| T13 | Produce with `acks=0`, `acks=1`, and `acks=all` | FR-8 | Each mode follows the documented durability mapping; `acks=1` is rejected or upgraded per profile, never silently weakened |
+| T14 | Fetch response watermark fields | FR-14 | High watermark, log start offset, last stable offset, and leader epoch match documented object-storage-backed semantics |
+| T15 | Epoch coherence after reassignment | FR-20 | Leader epoch, partition epoch, and manifest state agree after node failure and reassignment; stale-epoch writes are fenced |
+| T16 | Metrics surface scrape | FR-29 | Produce/fetch latency, object operation counts, segment size, cache hit rate, rebalance, and metadata error metrics are exposed |
+
+### Coverage Notes
+
+FR-10 (idempotent producer design), FR-12 (fetch index/cache design), FR-22
+(metadata backend boundary), and FR-32 (durable metadata placement) are
+design-gated requirements: they are satisfied by approved design artifacts
+(follow-up ADRs and TD-002) before their implementation scenarios are added
+here. FR-26 (object-log neutrality) is enforced by object-log's own
+conformance suite and dependency rules rather than a fjord runtime scenario.
+
+## Acceptance Criteria Layer Allocation
+
+N/A at this stage: fjord has no user-story artifacts yet, so there are no
+`US-n-ACm` IDs to allocate across test layers. When user stories are framed
+for L1/L2 delivery, each acceptance criterion must be allocated to a layer
+here and covered by a test citing `@covers US-<n>-AC<m>`.
 
 ## Performance Profiles
 

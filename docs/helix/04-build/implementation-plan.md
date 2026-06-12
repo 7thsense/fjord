@@ -12,13 +12,15 @@ ddx:
 
 # Implementation Plan
 
-## Build Order
+## Scope
 
 Fjord depends on object-log for durable data-plane semantics, but not every
 Fjord task must wait. Protocol scaffolding, compatibility fixtures, and metadata
 design can begin while object-log hardens.
 
-## Milestones
+## Implementation Slices
+
+Slices are labeled M1-M6 and referenced by those labels across fjord docs.
 
 ### M1: Protocol Gateway Skeleton
 
@@ -62,6 +64,44 @@ design can begin while object-log hardens.
   profiles.
 - Gate: Kafka performance tools produce reproducible throughput/latency/cost
   evidence for the declared profile.
+
+## Issue Decomposition
+
+Tracked work lives in `.ddx/beads.jsonl`:
+
+| Bead | Milestone / Gate |
+|------|------------------|
+| `fjord-66bad250` Complete Fjord full-scope delivery | Epic for M1-M6 |
+| `fjord-08961019` Bootstrap Kafka protocol gateway skeleton | M1 |
+| `fjord-80ddb508` Decide and prototype shared kafka-wire extraction | M2 |
+| `fjord-15369989` Integrate object-log for durable Produce and Fetch | M3 |
+| `fjord-f8989544` Implement Fjord metadata and routing prototype | M4 |
+| `fjord-6ab8369e` Implement consumer groups and offset state | M5 |
+| `fjord-e5600c21` Add Fjord compatibility and performance harness | M6 |
+| `fjord-42864fe0` Run Fjord build/no-build differentiation review | Standing gate (FEAT-007); first checkpoint before M3 |
+
+## Risks and Rollbacks
+
+- **Differentiation fails review**: the build/no-build bead is the standing
+  rollback for the whole plan — stop or redirect before M3 rather than after
+  storage integration sinks cost.
+- **object-log hardening slips** (S3 adapter, retention, conformance — its
+  M1-M4): M1/M2/M4 protocol and metadata work proceeds against traits and
+  in-memory backends; M3 is the only milestone blocked.
+- **Shared-crate extraction proves premature at M2**: keep scaffolding in-repo
+  and retry after M3; ADR-002 already gates extraction on a stable boundary.
+- **Metadata backend choice invalidated at M4**: TD-002 requires the in-memory
+  backend boundary to match the durable design, so a backend swap replaces a
+  module, not the routing design.
+- Each milestone gate is a test, not a claim; a failed gate rolls the milestone
+  back to design (`evolve` the governing TD) instead of patching forward.
+
+## Validation Plan
+
+Every slice gate is defined in TP-002 (increment gates) and, for compatibility
+claims, TP-001 (client/tool conformance, performance profiles, fault matrix).
+A slice is complete only when its TP-002 gate passes with recorded evidence:
+commands, client versions, object-log version, and backend modes.
 
 ## Dependency Notes
 

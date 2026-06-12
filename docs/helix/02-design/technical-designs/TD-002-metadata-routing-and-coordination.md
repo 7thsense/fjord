@@ -4,6 +4,8 @@ ddx:
   depends_on:
     - prd
     - feature-registry
+    - adr-fjord-as-kafka-compatible-object-log-system
+    - api-kafka-compatibility-surface
 ---
 
 # Technical Design: TD-002 Metadata, Routing, and Coordination

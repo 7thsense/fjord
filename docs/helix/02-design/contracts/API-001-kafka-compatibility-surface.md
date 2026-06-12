@@ -105,16 +105,34 @@ tradeoffs.
 
 ## object-log Dependency Contract
 
-fjord needs object-log to provide:
+The normative surface fjord consumes is defined on the object-log side in
+`object-log` CONTRACT-001 (core log API) and CONTRACT-002 (object store API).
+This section records fjord's requirements against that contract and their
+current status.
 
-- opaque Kafka record batch storage or a lossless record representation,
-- topic/partition offsets,
-- durable segment commit and replay,
-- segment/object checksums,
-- manifest/index reads by partition and offset,
-- producer metadata hooks,
-- retention-aware segment lifecycle hooks,
-- conformance tests that can also run against a Kafka-backed implementation.
+Provided today by object-log v1 (`CONTRACT-001`):
+
+- lossless record representation: `AppendRecord`/`AppendedRecord` with key,
+  value, ordered headers, timestamps, and attributes; payload bytes are opaque,
+- topic/partition offsets: per-`TopicPartition` contiguous offsets with
+  `ReadBatch.high_watermark`,
+- durable segment commit and replay: `AckMode::All` returns offsets only after
+  the durable boundary (manifest CAS on the object backend),
+- acks mapping surface: `AckMode::None`/`Leader`/`All` align with Kafka
+  `acks=0/1/all`; the object backend may map `Leader` to `All` or reject it,
+- producer metadata hooks: `ProducerState` (producer id, epoch, base sequence)
+  for duplicate suppression,
+- caller-owned fencing: `EpochGuard` checked before durable commit,
+- backends for testing: `MemoryObjectStore` and `LocalObjectStore` behind the
+  `ObjectStore` trait.
+
+Required by fjord but still pending in object-log (tracked in object-log's
+implementation plan):
+
+- S3-compatible adapter (object-log M3),
+- retention-aware segment lifecycle hooks and snapshots (object-log M2),
+- shared conformance fixtures that can also run against a Kafka-backed
+  implementation (object-log M1/M4).
 
 fjord must not require object-log to know Kafka wire-protocol versions, group
 membership, ACLs, transactions, or admin APIs.

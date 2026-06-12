@@ -43,7 +43,7 @@ standard Kafka clients. Producers write batches to topics, consumers fetch by
 partition and commit offsets, and the operator scales nodes without moving
 durable log data between disks.
 
-## Target Users
+## Target Market
 
 | User | Need | Why fjord |
 |------|------|-----------|
@@ -51,6 +51,19 @@ durable log data between disks.
 | Cost-sensitive streaming user | Lower durable storage and replication cost | Object storage holds the log; batching amortizes write cost |
 | pqueue / Niflheim operator | Same log semantics can run on object storage or Kafka-like service | fjord becomes a third consumer that pressure-tests `object-log` compatibility |
 | Compatibility tester | Standard Kafka client/tool validation | Kafka-facing service surface makes semantics testable with existing tooling |
+
+## Key Value Propositions
+
+- Kafka-compatible APIs without operating stateful broker storage: standard
+  producers, consumers, and tools keep working while durable log data lives in
+  S3-compatible object storage.
+- Lower storage and replication cost: object storage holds the log; batching
+  amortizes write cost; nodes scale without moving partition data.
+- Open and self-hostable: the whole system runs from source in the user's
+  account with no required hosted metadata/control-plane service.
+- Reusable `object-log` core: the same embeddable durable log contract serves
+  pqueue, Niflheim, and fjord, so fjord pressure-tests a shared asset instead
+  of creating a private fork of log mechanics.
 
 ## Key Tradeoff
 
@@ -83,6 +96,20 @@ answer may be to stop and use existing systems rather than clone them.
 | Operational simplicity | fjord nodes can be replaced or scaled without partition data copying |
 | Cost discipline | Production profiles batch records into object-log segments and reject tiny-object write patterns |
 | Requirements coverage | Leader/follower, fetch, consumer groups, offsets, metadata, idempotent producers, and transactions are explicitly scoped before implementation |
+
+## Why Now
+
+- The Kafka ecosystem itself is validating object-storage-first active logs:
+  KIP-1150 (Diskless Topics) moves durable topic data into shared object
+  storage inside Apache Kafka.
+- WarpStream, AutoMQ, and Bufstream prove the architecture is commercially
+  credible, but none of them combines open/self-hostable operation, no
+  required hosted control plane, and an embeddable reusable log core.
+- `object-log` now exists with a normative core contract (CONTRACT-001) and
+  working memory/local object-store backends, so a Kafka-facing consumer can
+  pressure-test it before its S3 adapter and retention layers harden.
+- pqueue and Niflheim already need the same durable log semantics, so the
+  shared-core bet has immediate internal consumers.
 
 ## Non-Vision
 

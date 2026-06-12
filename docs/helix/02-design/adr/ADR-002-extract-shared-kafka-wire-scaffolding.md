@@ -48,6 +48,32 @@ The shared crate must not include:
 - Niflheim tenant/table routing,
 - pqueue queue semantics.
 
+## Alternatives Considered
+
+### Extract the shared crate first, before any Fjord gateway code
+
+Rejected. Niflheim's protocol module is shaped by its single-partition,
+ingestion-only use; abstracting from one consumer produces a premature API.
+The extraction happens only after Fjord's skeleton proves the boundary from a
+second consumer.
+
+### Copy Niflheim's protocol code into Fjord and let them diverge
+
+Rejected. It duplicates framing, version negotiation, and error mapping that
+both systems must keep Kafka-correct, and forfeits the shared compatibility
+fixtures both need.
+
+### Depend on `niflheim-protocol` directly from Fjord
+
+Rejected. It would drag Niflheim's tenant/table routing, RBAC filtering, and
+WAL encoding into Fjord's dependency tree and invert the product boundary.
+
+### Rely on the upstream `kafka-protocol` crate alone
+
+Insufficient. The crate provides message types and codecs but not frame IO,
+header version selection, handler dispatch, SASL/TLS plumbing, error mapping,
+or client compatibility fixtures — the scaffolding both products share.
+
 ## Consequences
 
 - Fjord can learn from Niflheim without forcing a premature abstraction.
