@@ -1,7 +1,8 @@
 //! fjord-broker: in-memory stub implementations of heimq-broker storage traits.
 //!
 //! Provides `FjordLog`, `FjordTopicLog`, `FjordPartitionLog`, `FjordOffsetStore`,
-//! and `FjordClusterView` — enough to pass the heimq-testkit conformance suites.
+//! `FjordClusterView`, and `FjordTopicRegistry` — enough to pass the heimq-testkit
+//! conformance suites, plus a topology-aware metadata model.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -19,6 +20,141 @@ use heimq_broker::storage::{
     CommittedOffset, Durability, FetchWait, LogBackend, OffsetStore, OffsetStoreCapabilities,
     PartitionLog, RecordBatchView, RetentionMode, TopicConfig, TopicLog,
 };
+
+// ---------------------------------------------------------------------------
+// FjordTopicRegistry
+// ---------------------------------------------------------------------------
+
+struct PartitionMeta {
+    node_id: i32,
+    leader_epoch: i32,
+}
+
+struct TopicRegistryEntry {
+    num_partitions: i32,
+    partitions: Vec<PartitionMeta>,
+}
+
+/// In-memory topic/partition ownership registry.
+///
+/// Tracks which node (by node_id) owns each partition and the current leader
+/// epoch. Both `FjordLog` and `FjordClusterView` can share a registry via
+/// `Arc<FjordTopicRegistry>` so that topic creation is reflected in metadata
+/// responses without additional coordination.
+pub struct FjordTopicRegistry {
+    self_node_id: i32,
+    topics: Mutex<HashMap<String, TopicRegistryEntry>>,
+}
+
+impl FjordTopicRegistry {
+    pub fn new(self_node_id: i32) -> Arc<Self> {
+        Arc::new(Self {
+            self_node_id,
+            topics: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// Register a newly created topic; all partitions owned by self_node_id, epoch 0.
+    pub fn register_topic(&self, name: &str, num_partitions: i32) {
+        let partitions = (0..num_partitions)
+            .map(|_| PartitionMeta {
+                node_id: self.self_node_id,
+                leader_epoch: 0,
+            })
+            .collect();
+        self.topics.lock().insert(
+            name.to_string(),
+            TopicRegistryEntry {
+                num_partitions,
+                partitions,
+            },
+        );
+    }
+
+    /// Remove a topic from the registry.
+    pub fn deregister_topic(&self, name: &str) {
+        self.topics.lock().remove(name);
+    }
+
+    /// Return the leader broker_info for (topic, partition) if owned by self_node_id,
+    /// or Err(NotLeaderOrFollower) if owned by another node or topic/partition unknown.
+    pub fn partition_leader_self(
+        &self,
+        topic: &str,
+        partition: i32,
+        self_info: &BrokerInfo,
+    ) -> std::result::Result<BrokerInfo, ClusterViewError> {
+        let topics = self.topics.lock();
+        match topics.get(topic) {
+            None => {
+                // Unknown topic: single-node cluster still serves it (auto-create path).
+                Ok(self_info.clone())
+            }
+            Some(entry) => {
+                let idx = partition as usize;
+                if idx >= entry.partitions.len() {
+                    return Err(ClusterViewError::NotLeaderOrFollower {
+                        topic: topic.to_string(),
+                        partition,
+                    });
+                }
+                let pm = &entry.partitions[idx];
+                if pm.node_id == self.self_node_id {
+                    Ok(self_info.clone())
+                } else {
+                    Err(ClusterViewError::NotLeaderOrFollower {
+                        topic: topic.to_string(),
+                        partition,
+                    })
+                }
+            }
+        }
+    }
+
+    /// Reassign leadership of a partition to a new node_id and bump the leader epoch.
+    pub fn reassign_leader(&self, topic: &str, partition: i32, new_node_id: i32) {
+        let mut topics = self.topics.lock();
+        if let Some(entry) = topics.get_mut(topic) {
+            let idx = partition as usize;
+            if idx < entry.partitions.len() {
+                entry.partitions[idx].node_id = new_node_id;
+                entry.partitions[idx].leader_epoch += 1;
+            }
+        }
+    }
+
+    /// Return the current leader_epoch for (topic, partition), or None if unknown.
+    pub fn leader_epoch(&self, topic: &str, partition: i32) -> Option<i32> {
+        self.topics
+            .lock()
+            .get(topic)
+            .and_then(|e| e.partitions.get(partition as usize))
+            .map(|pm| pm.leader_epoch)
+    }
+
+    /// Return the node_id currently owning (topic, partition), or None if unknown.
+    pub fn partition_owner(&self, topic: &str, partition: i32) -> Option<i32> {
+        self.topics
+            .lock()
+            .get(topic)
+            .and_then(|e| e.partitions.get(partition as usize))
+            .map(|pm| pm.node_id)
+    }
+
+    /// List all registered topics as (name, num_partitions) pairs.
+    pub fn topic_list(&self) -> Vec<(String, i32)> {
+        self.topics
+            .lock()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.num_partitions))
+            .collect()
+    }
+
+    /// Return the num_partitions for a known topic, or None if unknown.
+    pub fn topic_info(&self, name: &str) -> Option<i32> {
+        self.topics.lock().get(name).map(|e| e.num_partitions)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // FjordPartitionLog
@@ -189,12 +325,22 @@ static FJORD_CAPABILITIES: BackendCapabilities = BackendCapabilities {
 
 pub struct FjordLog {
     topics: Mutex<HashMap<String, Arc<FjordTopicLog>>>,
+    registry: Option<Arc<FjordTopicRegistry>>,
 }
 
 impl FjordLog {
     pub fn new() -> Self {
         Self {
             topics: Mutex::new(HashMap::new()),
+            registry: None,
+        }
+    }
+
+    /// Create a FjordLog that registers topic metadata in the given registry.
+    pub fn new_with_registry(registry: Arc<FjordTopicRegistry>) -> Self {
+        Self {
+            topics: Mutex::new(HashMap::new()),
+            registry: Some(registry),
         }
     }
 
@@ -209,6 +355,9 @@ impl FjordLog {
         }
         let t = Arc::new(FjordTopicLog::new(name.to_string(), num_partitions));
         topics.insert(name.to_string(), t.clone());
+        if let Some(reg) = &self.registry {
+            reg.register_topic(name, num_partitions);
+        }
         t
     }
 }
@@ -227,12 +376,18 @@ impl LogBackend for FjordLog {
         }
         let t = Arc::new(FjordTopicLog::new(name.to_string(), num_partitions));
         topics.insert(name.to_string(), t.clone());
+        if let Some(reg) = &self.registry {
+            reg.register_topic(name, num_partitions);
+        }
         Ok(t as Arc<dyn TopicLog>)
     }
 
     fn delete_topic(&self, name: &str) -> Result<()> {
         if self.topics.lock().remove(name).is_none() {
             return Err(HeimqError::TopicNotFound(name.to_string()));
+        }
+        if let Some(reg) = &self.registry {
+            reg.deregister_topic(name);
         }
         Ok(())
     }
@@ -402,6 +557,7 @@ impl OffsetStore for FjordOffsetStore {
 pub struct FjordClusterView {
     broker: BrokerInfo,
     cluster_id: String,
+    registry: Option<Arc<FjordTopicRegistry>>,
 }
 
 impl FjordClusterView {
@@ -413,6 +569,26 @@ impl FjordClusterView {
                 port,
             },
             cluster_id: cluster_id.into(),
+            registry: None,
+        }
+    }
+
+    /// Create a FjordClusterView backed by a shared topic registry.
+    pub fn new_with_registry(
+        node_id: i32,
+        host: impl Into<String>,
+        port: u16,
+        cluster_id: impl Into<String>,
+        registry: Arc<FjordTopicRegistry>,
+    ) -> Self {
+        Self {
+            broker: BrokerInfo {
+                node_id,
+                host: host.into(),
+                port,
+            },
+            cluster_id: cluster_id.into(),
+            registry: Some(registry),
         }
     }
 }
@@ -434,8 +610,11 @@ impl ClusterView for FjordClusterView {
         self.cluster_id.clone()
     }
 
-    fn partition_leader(&self, _topic: &str, _partition: i32) -> std::result::Result<BrokerInfo, ClusterViewError> {
-        Ok(self.self_broker())
+    fn partition_leader(&self, topic: &str, partition: i32) -> std::result::Result<BrokerInfo, ClusterViewError> {
+        match &self.registry {
+            Some(reg) => reg.partition_leader_self(topic, partition, &self.broker),
+            None => Ok(self.self_broker()),
+        }
     }
 
     fn find_coordinator(&self, _group_id: &str) -> std::result::Result<BrokerInfo, ClusterViewError> {
