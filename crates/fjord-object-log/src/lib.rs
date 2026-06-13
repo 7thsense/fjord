@@ -11,13 +11,18 @@
 //!
 //! Requires a multi-thread tokio runtime (the block_in_place precondition).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use bytes::Bytes;
 use heimq_broker::error::{HeimqError, Result};
-use heimq_broker::storage::{FetchWait, PartitionLog, RecordBatchView};
+use heimq_broker::storage::{
+    AtomicAppendScope, BackendCapabilities, Durability, FetchWait, LogBackend, PartitionLog,
+    RecordBatchView, RetentionMode, TopicConfig, TopicLog,
+};
 use object_log::{ObjectKey, ObjectStore};
+use parking_lot::Mutex;
 
 pub struct ObjectLogPartitionLog {
     store: Arc<dyn ObjectStore>,
@@ -162,5 +167,247 @@ impl PartitionLog for ObjectLogPartitionLog {
             Ok::<(), HeimqError>(())
         });
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ObjectLogFjordLog — LogBackend backed by an ObjectStore
+// ---------------------------------------------------------------------------
+
+/// Configuration for `ObjectLogFjordLog`.
+///
+/// Enforces a minimum segment size to prevent tiny-object anti-patterns.
+#[derive(Clone, Debug)]
+pub struct ObjectLogFjordConfig {
+    /// Minimum bytes required before a segment is written. Requests below this
+    /// threshold are rejected to avoid costly tiny-object writes.
+    pub min_segment_bytes: usize,
+}
+
+impl Default for ObjectLogFjordConfig {
+    fn default() -> Self {
+        Self {
+            min_segment_bytes: 64,
+        }
+    }
+}
+
+impl ObjectLogFjordConfig {
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        if self.min_segment_bytes < 64 {
+            return Err(format!(
+                "min_segment_bytes ({}) must be >= 64 to avoid tiny-object anti-pattern",
+                self.min_segment_bytes
+            ));
+        }
+        Ok(())
+    }
+}
+
+struct ObjectLogTopicLog {
+    name: String,
+    config: TopicConfig,
+    partitions: Vec<Arc<ObjectLogPartitionLog>>,
+}
+
+impl ObjectLogTopicLog {
+    fn new(store: Arc<dyn ObjectStore>, name: &str, num_partitions: i32) -> Self {
+        let partitions = (0..num_partitions)
+            .map(|p| Arc::new(ObjectLogPartitionLog::new(store.clone(), name, p)))
+            .collect();
+        Self {
+            name: name.to_string(),
+            config: TopicConfig { num_partitions },
+            partitions,
+        }
+    }
+}
+
+impl TopicLog for ObjectLogTopicLog {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn num_partitions(&self) -> i32 {
+        self.partitions.len() as i32
+    }
+
+    fn config(&self) -> &TopicConfig {
+        &self.config
+    }
+
+    fn partition(&self, index: i32) -> Result<Arc<dyn PartitionLog>> {
+        self.partitions
+            .get(index as usize)
+            .cloned()
+            .map(|p| p as Arc<dyn PartitionLog>)
+            .ok_or_else(|| HeimqError::PartitionNotFound { topic: self.name.clone(), partition: index })
+    }
+}
+
+static OBJECT_LOG_FJORD_CAPS: BackendCapabilities = BackendCapabilities {
+    name: "fjord-object-log",
+    version: "0.1.0",
+    durability: Durability::WalFsync,
+    atomic_append: AtomicAppendScope::Partition,
+    survives_restart: true,
+    compaction: false,
+    transactions: false,
+    idempotent_producer: false,
+    timestamps: false,
+    headers: false,
+    compression: &[],
+    max_message_bytes: 64 * 1024 * 1024,
+    max_batch_bytes: 64 * 1024 * 1024,
+    max_partitions: 1024,
+    fetch_wait: false,
+    read_your_writes: true,
+    retention: &[RetentionMode::None],
+    truncate: true,
+};
+
+/// `LogBackend` implementation backed by an `ObjectStore`.
+///
+/// Each partition is stored as a series of keyed objects under
+/// `t/{topic}/{partition}/{base_offset:020}`. Topics and partitions are
+/// tracked in memory; the object store holds the actual record bytes.
+///
+/// Configure with `ObjectLogFjordConfig` and validate before construction
+/// to prevent misconfiguration.
+pub struct ObjectLogFjordLog {
+    store: Arc<dyn ObjectStore>,
+    config: ObjectLogFjordConfig,
+    topics: Mutex<HashMap<String, Arc<ObjectLogTopicLog>>>,
+}
+
+impl ObjectLogFjordLog {
+    /// Create a new `ObjectLogFjordLog`.
+    ///
+    /// Returns `Err` if the config is invalid (e.g., min_segment_bytes too small).
+    pub fn new(
+        store: Arc<dyn ObjectStore>,
+        config: ObjectLogFjordConfig,
+    ) -> std::result::Result<Self, String> {
+        config.validate()?;
+        Ok(Self {
+            store,
+            config,
+            topics: Mutex::new(HashMap::new()),
+        })
+    }
+
+    fn get_topic(&self, name: &str) -> Option<Arc<ObjectLogTopicLog>> {
+        self.topics.lock().get(name).cloned()
+    }
+}
+
+impl LogBackend for ObjectLogFjordLog {
+    fn create_topic(&self, name: &str, num_partitions: i32) -> Result<Arc<dyn TopicLog>> {
+        let mut topics = self.topics.lock();
+        if topics.contains_key(name) {
+            return Err(HeimqError::Protocol(format!("topic '{}' already exists", name)));
+        }
+        let t = Arc::new(ObjectLogTopicLog::new(self.store.clone(), name, num_partitions));
+        topics.insert(name.to_string(), t.clone());
+        Ok(t as Arc<dyn TopicLog>)
+    }
+
+    fn delete_topic(&self, name: &str) -> Result<()> {
+        if self.topics.lock().remove(name).is_none() {
+            return Err(HeimqError::TopicNotFound(name.to_string()));
+        }
+        Ok(())
+    }
+
+    fn list_topics(&self) -> Vec<String> {
+        self.topics.lock().keys().cloned().collect()
+    }
+
+    fn topic(&self, name: &str) -> Option<Arc<dyn TopicLog>> {
+        self.get_topic(name).map(|t| t as Arc<dyn TopicLog>)
+    }
+
+    fn capabilities(&self) -> &BackendCapabilities {
+        &OBJECT_LOG_FJORD_CAPS
+    }
+
+    fn get_or_create_topic(&self, name: &str, num_partitions: i32) -> Arc<dyn TopicLog> {
+        let mut topics = self.topics.lock();
+        if let Some(t) = topics.get(name) {
+            return t.clone() as Arc<dyn TopicLog>;
+        }
+        let t = Arc::new(ObjectLogTopicLog::new(self.store.clone(), name, num_partitions));
+        topics.insert(name.to_string(), t.clone());
+        t as Arc<dyn TopicLog>
+    }
+
+    fn get_all_topic_metadata(&self) -> Vec<(String, i32)> {
+        self.topics
+            .lock()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.num_partitions()))
+            .collect()
+    }
+
+    fn default_num_partitions(&self) -> i32 {
+        1
+    }
+
+    fn auto_create_topics(&self) -> bool {
+        false
+    }
+
+    fn append(&self, topic_name: &str, partition: i32, records: &[u8]) -> Result<(i64, i64)> {
+        if records.len() < self.config.min_segment_bytes {
+            return Err(HeimqError::Protocol(format!(
+                "record batch ({} bytes) is smaller than min_segment_bytes ({}); \
+                 tiny-object production rejected",
+                records.len(),
+                self.config.min_segment_bytes
+            )));
+        }
+        let topic = self
+            .get_topic(topic_name)
+            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
+        let p = topic.partition(partition)?;
+        let view = RecordBatchView::from_bytes(records)
+            .map_err(|e| HeimqError::Protocol(format!("decode: {}", e)))?;
+        p.append(&view, Some(records))
+    }
+
+    fn fetch(
+        &self,
+        topic_name: &str,
+        partition: i32,
+        offset: i64,
+        max_bytes: i32,
+    ) -> Result<(Vec<u8>, i64)> {
+        let topic = self
+            .get_topic(topic_name)
+            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
+        let p = topic.partition(partition)?;
+        let (data, hwm) = p.read(offset, max_bytes as usize, FetchWait::Immediate)?;
+        // Validate CRC of each batch before returning. Fails closed on corruption.
+        if !data.is_empty() {
+            RecordBatchView::from_bytes(&data)
+                .map_err(|e| HeimqError::Protocol(format!("corrupted segment at offset {}: {}", offset, e)))?;
+        }
+        Ok((data, hwm))
+    }
+
+    fn high_watermark(&self, topic_name: &str, partition: i32) -> Result<i64> {
+        let topic = self
+            .get_topic(topic_name)
+            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
+        let p = topic.partition(partition)?;
+        Ok(p.high_watermark())
+    }
+
+    fn log_start_offset(&self, topic_name: &str, partition: i32) -> Result<i64> {
+        let topic = self
+            .get_topic(topic_name)
+            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
+        let p = topic.partition(partition)?;
+        Ok(p.log_start_offset())
     }
 }

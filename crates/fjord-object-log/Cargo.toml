@@ -17,5 +17,6 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 heimq-testkit = { path = "../../../heimq/crates/heimq-testkit" }
+kafka-protocol = "0.15"
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
