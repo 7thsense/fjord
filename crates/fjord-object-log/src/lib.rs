@@ -599,6 +599,12 @@ impl OffsetStore for ObjectLogOffsetStore {
         }
     }
 
+    fn delete_offset(&self, group_id: &str, topic: &str, partition: i32) {
+        let key = Self::offset_key(group_id, topic, partition);
+        let store = self.store.clone();
+        let _ = Self::sync_run(async move { store.delete(&key).await });
+    }
+
     fn capabilities(&self) -> &OffsetStoreCapabilities {
         &OBJECT_LOG_OFFSET_CAPS
     }
