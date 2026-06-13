@@ -5,10 +5,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 
+use heimq_broker::consumer_group::{
+    GroupCoordinatorBackend, GroupCoordinatorCapabilities, HeartbeatResult, JoinRequest, JoinResult,
+    LeaveResult, SyncRequest, SyncResult,
+};
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
     AtomicAppendScope, BackendCapabilities, BrokerInfo, ClusterView, ClusterViewError,
@@ -436,5 +440,165 @@ impl ClusterView for FjordClusterView {
 
     fn find_coordinator(&self, _group_id: &str) -> std::result::Result<BrokerInfo, ClusterViewError> {
         Ok(self.self_broker())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FjordGroupCoordinator
+// ---------------------------------------------------------------------------
+
+struct FjordGroup {
+    generation_id: i32,
+    leader_id: String,
+    members: HashMap<String, Vec<u8>>,      // member_id → assignment bytes
+    member_counter: usize,
+}
+
+impl FjordGroup {
+    fn new() -> Self {
+        Self {
+            generation_id: 0,
+            leader_id: String::new(),
+            members: HashMap::new(),
+            member_counter: 0,
+        }
+    }
+
+    fn mint_member_id(&mut self) -> String {
+        self.member_counter += 1;
+        format!("fjord-member-{}", self.member_counter)
+    }
+
+    fn add_member(&mut self, member_id: String) {
+        self.generation_id += 1;
+        if self.leader_id.is_empty() {
+            self.leader_id = member_id.clone();
+        }
+        self.members.entry(member_id).or_insert_with(Vec::new);
+    }
+}
+
+static FJORD_COORD_CAPS: GroupCoordinatorCapabilities = GroupCoordinatorCapabilities {
+    name: "fjord-memory",
+    version: "0.1.0",
+    durability: Durability::None,
+    survives_restart: false,
+    multi_node: false,
+};
+
+pub struct FjordGroupCoordinator {
+    groups: Mutex<HashMap<String, FjordGroup>>,
+    offset_store: Arc<FjordOffsetStore>,
+    _member_seq: AtomicUsize,
+}
+
+impl FjordGroupCoordinator {
+    pub fn new() -> Self {
+        Self {
+            groups: Mutex::new(HashMap::new()),
+            offset_store: FjordOffsetStore::new(),
+            _member_seq: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl Default for FjordGroupCoordinator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GroupCoordinatorBackend for FjordGroupCoordinator {
+    fn join_group(&self, req: JoinRequest) -> JoinResult {
+        let mut groups = self.groups.lock();
+        let group = groups.entry(req.group_id.clone()).or_insert_with(FjordGroup::new);
+
+        if req.member_id.is_empty() {
+            let new_id = group.mint_member_id();
+            return JoinResult {
+                error_code: 79,
+                generation_id: -1,
+                member_id: new_id,
+                leader_id: String::new(),
+                protocol_type: req.protocol_type,
+                protocol_name: String::new(),
+                members: Vec::new(),
+            };
+        }
+
+        group.add_member(req.member_id.clone());
+        let generation_id = group.generation_id;
+        let leader_id = group.leader_id.clone();
+        JoinResult {
+            error_code: 0,
+            generation_id,
+            member_id: req.member_id,
+            leader_id,
+            protocol_type: req.protocol_type,
+            protocol_name: req.protocols.first().map(|(n, _)| n.clone()).unwrap_or_default(),
+            members: Vec::new(),
+        }
+    }
+
+    fn sync_group(&self, req: SyncRequest) -> SyncResult {
+        let mut groups = self.groups.lock();
+        let group = match groups.get_mut(&req.group_id) {
+            Some(g) => g,
+            None => return SyncResult { error_code: 16, assignment: Vec::new() },
+        };
+        if group.generation_id != req.generation_id {
+            return SyncResult { error_code: 22, assignment: Vec::new() };
+        }
+        if !group.members.contains_key(&req.member_id) {
+            return SyncResult { error_code: 25, assignment: Vec::new() };
+        }
+        if group.leader_id == req.member_id {
+            for (mid, assignment) in req.assignments {
+                if let Some(slot) = group.members.get_mut(&mid) {
+                    *slot = assignment;
+                }
+            }
+        }
+        let assignment = group.members.get(&req.member_id).cloned().unwrap_or_default();
+        SyncResult { error_code: 0, assignment }
+    }
+
+    fn heartbeat(&self, group_id: &str, generation_id: i32, member_id: &str) -> HeartbeatResult {
+        let groups = self.groups.lock();
+        let group = match groups.get(group_id) {
+            Some(g) => g,
+            None => return HeartbeatResult { error_code: 16 },
+        };
+        if group.generation_id != generation_id {
+            return HeartbeatResult { error_code: 22 };
+        }
+        if !group.members.contains_key(member_id) {
+            return HeartbeatResult { error_code: 25 };
+        }
+        HeartbeatResult { error_code: 0 }
+    }
+
+    fn leave_group(&self, group_id: &str, member_ids: &[String]) -> LeaveResult {
+        let mut groups = self.groups.lock();
+        match groups.get_mut(group_id) {
+            Some(group) => {
+                for mid in member_ids {
+                    group.members.remove(mid);
+                    if group.leader_id == *mid {
+                        group.leader_id = group.members.keys().next().cloned().unwrap_or_default();
+                    }
+                }
+                LeaveResult { error_code: 0 }
+            }
+            None => LeaveResult { error_code: 16 },
+        }
+    }
+
+    fn capabilities(&self) -> &GroupCoordinatorCapabilities {
+        &FJORD_COORD_CAPS
+    }
+
+    fn offset_store(&self) -> Arc<dyn OffsetStore> {
+        self.offset_store.clone()
     }
 }

@@ -1,5 +1,5 @@
 // @covers Slices 5-6 per-trait suites
-use fjord_broker::{FjordClusterView, FjordLog, FjordOffsetStore};
+use fjord_broker::{FjordClusterView, FjordGroupCoordinator, FjordLog, FjordOffsetStore};
 use heimq_broker::storage::LogBackend;
 use heimq_testkit::suites;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -85,6 +85,12 @@ fn fjord_partition_log_high_watermark_tracks_record_count() {
     assert_eq!(base_offset, 0, "first append starts at offset 0");
     assert_eq!(record_count, 3, "3-record batch must report count 3");
     assert_eq!(partition.high_watermark(), 3, "HWM must advance by record count");
+}
+
+#[test]
+fn fjord_group_coordinator_suite() {
+    let coord = FjordGroupCoordinator::new();
+    suites::group_coordinator::run_all(&coord);
 }
 
 fn build_three_record_batch() -> Vec<u8> {
