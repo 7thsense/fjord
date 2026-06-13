@@ -8,6 +8,7 @@ use fjord_object_log::{ObjectLogFjordConfig, ObjectLogFjordLog, ObjectLogOffsetS
 use heimq::server::Server;
 use object_log::MemoryObjectStore;
 use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::message::{Headers as _, Message, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::ClientConfig;
 use std::sync::Arc;
@@ -305,4 +306,135 @@ async fn object_log_consumer_group_offset_survives_restart() {
         resumed_count, 5,
         "consumer should resume from committed offset, got {resumed_count} records (expected 5)"
     );
+}
+
+/// Record headers round-trip through the object-log storage backend.
+///
+/// Verifies that headers embedded in RecordBatch bytes are stored opaquely
+/// and returned intact to the consumer, even though BackendCapabilities
+/// advertises headers=false (the broker stores bytes, not parsed fields).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn object_log_kafka_headers_roundtrip() {
+    let topic = "headers-roundtrip";
+    let (server, port) = start_object_log_server_with_topics(&[(topic, 1)]);
+    let bootstrap = format!("127.0.0.1:{port}");
+
+    tokio::spawn(async move { server.run().await.ok() });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", &bootstrap)
+        .set("message.timeout.ms", "10000")
+        .create()
+        .expect("producer");
+
+    let headers = OwnedHeaders::new()
+        .insert(rdkafka::message::Header { key: "x-trace-id", value: Some("abc123") })
+        .insert(rdkafka::message::Header { key: "x-env", value: Some("test") });
+
+    producer
+        .send(
+            FutureRecord::to(topic)
+                .payload(b"payload-with-headers")
+                .key(b"hdr-key")
+                .headers(headers),
+            Duration::from_secs(10),
+        )
+        .await
+        .expect("send");
+
+    let result = tokio::task::spawn_blocking({
+        let bs = bootstrap.clone();
+        move || {
+            let consumer: BaseConsumer = ClientConfig::new()
+                .set("bootstrap.servers", &bs)
+                .set("group.id", "hdr-group")
+                .set("auto.offset.reset", "earliest")
+                .set("enable.auto.commit", "false")
+                .create()
+                .expect("consumer");
+            consumer.subscribe(&[topic]).expect("subscribe");
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if let Some(Ok(msg)) = consumer.poll(Duration::from_millis(200)) {
+                    let hdrs = msg.headers().expect("message must have headers");
+                    let trace_id = hdrs
+                        .iter()
+                        .find(|h| h.key == "x-trace-id")
+                        .and_then(|h| h.value)
+                        .map(|v| String::from_utf8_lossy(v).to_string());
+                    let env = hdrs
+                        .iter()
+                        .find(|h| h.key == "x-env")
+                        .and_then(|h| h.value)
+                        .map(|v| String::from_utf8_lossy(v).to_string());
+                    return Some((trace_id, env));
+                }
+            }
+            None
+        }
+    })
+    .await
+    .expect("blocking");
+
+    let (trace_id, env) = result.expect("timed out waiting for message with headers");
+    assert_eq!(trace_id, Some("abc123".into()), "x-trace-id header must round-trip");
+    assert_eq!(env, Some("test".into()), "x-env header must round-trip");
+}
+
+/// Compressed record batches round-trip through the object-log storage backend.
+///
+/// Verifies that compressed RecordBatch bytes are stored and returned intact;
+/// the broker treats them as opaque blobs so any codec works transparently.
+/// Tries gzip first (always available), then lz4, then zstd; skips if none work.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn object_log_kafka_compressed_roundtrip() {
+    let topic = "compressed-roundtrip";
+    let (server, port) = start_object_log_server_with_topics(&[(topic, 1)]);
+    let bootstrap = format!("127.0.0.1:{port}");
+
+    tokio::spawn(async move { server.run().await.ok() });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    const N: usize = 10;
+    let codec = ["gzip", "lz4", "zstd"].iter().find_map(|c| {
+        ClientConfig::new()
+            .set("bootstrap.servers", &bootstrap)
+            .set("message.timeout.ms", "10000")
+            .set("compression.type", *c)
+            .set("batch.num.messages", "100")
+            .set("linger.ms", "20")
+            .create::<FutureProducer>()
+            .ok()
+            .map(|p| (*c, p))
+    });
+
+    let (codec_name, producer) = match codec {
+        Some(v) => v,
+        None => {
+            eprintln!("SKIP: no compression codec available in this rdkafka build");
+            return;
+        }
+    };
+    eprintln!("testing compression codec: {codec_name}");
+
+    let payloads: Vec<String> = (0..N).map(|i| format!("compressed-value-{i:04}")).collect();
+    for (i, payload) in payloads.iter().enumerate() {
+        producer
+            .send(
+                FutureRecord::to(topic).payload(payload.as_bytes()).key(format!("k{i}").as_bytes()),
+                Duration::from_secs(10),
+            )
+            .await
+            .unwrap_or_else(|(e, _)| panic!("send compressed ({codec_name}): {e}"));
+    }
+
+    let count = tokio::task::spawn_blocking({
+        let bs = bootstrap.clone();
+        move || consume_records(&bs, topic, "zstd-group", N)
+    })
+    .await
+    .expect("blocking");
+
+    assert_eq!(count, N, "all {N} zstd-compressed records must be fetchable");
 }
