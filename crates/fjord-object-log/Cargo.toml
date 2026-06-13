@@ -16,7 +16,10 @@ parking_lot = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
+heimq = { path = "../../../heimq/crates/heimq", features = ["test-support"] }
 heimq-testkit = { path = "../../../heimq/crates/heimq-testkit" }
 kafka-protocol = "0.15"
+clap = { version = "4", features = ["derive"] }
+rdkafka = { version = "0.36", features = ["cmake-build", "tokio"] }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
