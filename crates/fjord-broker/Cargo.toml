@@ -15,4 +15,6 @@ parking_lot = "0.12"
 
 [dev-dependencies]
 heimq-testkit = { path = "../../../heimq/crates/heimq-testkit" }
+kafka-protocol = "0.15"
+bytes = "1"
 tokio = { version = "1.44", features = ["full"] }
