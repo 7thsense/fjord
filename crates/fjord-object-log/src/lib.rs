@@ -165,12 +165,15 @@ impl PartitionLog for ObjectLogPartitionLog {
                 .await
                 .map_err(|e| HeimqError::Protocol(e.to_string()))?;
 
-            // Filter to keys >= the requested offset key, then sort.
-            keys.retain(|k| k.as_str() >= offset_floor.as_str());
+            // Sort first, then find the last key < offset_floor so we include
+            // any batch whose base_offset < offset but which spans records at
+            // or after offset (mid-batch seeks from a restarted consumer).
             keys.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+            let split = keys.partition_point(|k| k.as_str() < offset_floor.as_str());
+            let start = if split > 0 { split - 1 } else { 0 };
 
             let mut result = Vec::new();
-            for key in &keys {
+            for key in &keys[start..] {
                 if result.len() >= max_bytes && !result.is_empty() {
                     break;
                 }

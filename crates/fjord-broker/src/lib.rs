@@ -222,7 +222,12 @@ impl PartitionLog for FjordPartitionLog {
         let batches = self.batches.lock();
         let mut result = Vec::new();
         let mut bytes_read = 0usize;
-        for (_k, v) in batches.range(offset..) {
+        let first_key = batches
+            .range(..=offset)
+            .next_back()
+            .map(|(&k, _)| k)
+            .unwrap_or(offset);
+        for (_k, v) in batches.range(first_key..) {
             if bytes_read + v.len() > max_bytes && !result.is_empty() {
                 break;
             }
