@@ -11,9 +11,10 @@ use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use parking_lot::Mutex;
 
 use heimq_broker::consumer_group::{
-    GroupCoordinatorBackend, GroupCoordinatorCapabilities, HeartbeatResult, JoinRequest, JoinResult,
-    LeaveResult, SyncRequest, SyncResult,
+    GroupCoordinatorBackend, GroupCoordinatorCapabilities, HeartbeatResult,
+    JoinRequest, JoinResult, LeaveResult, SyncRequest, SyncResult,
 };
+use heimq_broker::consumer_group::backend::{GroupDescription, MemberDescription};
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
     AtomicAppendScope, BackendCapabilities, BrokerInfo, ClusterView, ClusterViewError,
@@ -545,6 +546,11 @@ impl OffsetStore for FjordOffsetStore {
         self.offsets.lock().retain(|k, _| k.group_id != group_id);
     }
 
+    fn delete_offset(&self, group_id: &str, topic: &str, partition: i32) {
+        let key = OffsetKey { group_id: group_id.to_string(), topic: topic.to_string(), partition };
+        self.offsets.lock().remove(&key);
+    }
+
     fn capabilities(&self) -> &OffsetStoreCapabilities {
         &FJORD_OFFSET_CAPS
     }
@@ -771,6 +777,33 @@ impl GroupCoordinatorBackend for FjordGroupCoordinator {
             }
             None => LeaveResult { error_code: 16 },
         }
+    }
+
+    fn list_groups(&self) -> Vec<String> {
+        self.groups.lock().keys().cloned().collect()
+    }
+
+    fn describe_group(&self, group_id: &str) -> Option<GroupDescription> {
+        let groups = self.groups.lock();
+        let group = groups.get(group_id)?;
+        let state = if group.members.is_empty() { "Empty" } else { "Stable" };
+        Some(GroupDescription {
+            group_id: group_id.to_string(),
+            group_state: state.to_string(),
+            protocol_type: "consumer".to_string(),
+            protocol_name: String::new(),
+            members: group.members.keys().map(|id| MemberDescription {
+                member_id: id.clone(),
+                client_id: String::new(),
+                client_host: String::new(),
+                member_metadata: Vec::new(),
+                member_assignment: group.members.get(id).cloned().unwrap_or_default(),
+            }).collect(),
+        })
+    }
+
+    fn delete_group(&self, group_id: &str) -> bool {
+        self.groups.lock().remove(group_id).is_some()
     }
 
     fn capabilities(&self) -> &GroupCoordinatorCapabilities {
