@@ -143,6 +143,74 @@ async fn object_log_kafka_high_watermark_advances() {
     assert!(!meta.topics()[0].partitions().is_empty(), "topic must have partitions");
 }
 
+/// Produce/fetch throughput smoke — measures records/sec and reports it.
+///
+/// Not a hard assertion; the test always passes as long as the server handles
+/// the load. Acts as TP-001 performance evidence (records/sec, latency proxy).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn object_log_kafka_throughput_smoke() {
+    use std::time::Instant;
+
+    let topic = "perf-topic";
+    let (server, port) = start_object_log_server_with_topics(&[(topic, 1)]);
+    let bootstrap = format!("127.0.0.1:{port}");
+
+    tokio::spawn(async move { server.run().await.ok() });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    const N: usize = 1_000;
+    let payload: Vec<u8> = vec![0xABu8; 1024]; // 1 KiB record
+
+    // Produce N records and measure throughput.
+    let t0 = Instant::now();
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", &bootstrap)
+        .set("message.timeout.ms", "10000")
+        .set("batch.size", "65536")
+        .set("linger.ms", "5")
+        .create()
+        .expect("producer");
+    let keys: Vec<String> = (0..N).map(|i| format!("k{i}")).collect();
+    let mut futs = Vec::with_capacity(N);
+    for i in 0..N {
+        let fut = producer.send(
+            FutureRecord::to(topic).payload(&payload).key(keys[i].as_bytes()),
+            Duration::from_secs(10),
+        );
+        futs.push(fut);
+    }
+    for fut in futs {
+        fut.await.expect("produce");
+    }
+    let produce_elapsed = t0.elapsed();
+    let produce_rps = N as f64 / produce_elapsed.as_secs_f64();
+
+    // Fetch N records and measure throughput.
+    let t1 = Instant::now();
+    let fetched = tokio::task::spawn_blocking({
+        let bs = bootstrap.clone();
+        move || consume_records(&bs, topic, "perf-group", N)
+    })
+    .await
+    .expect("blocking");
+    let fetch_elapsed = t1.elapsed();
+    let fetch_rps = fetched as f64 / fetch_elapsed.as_secs_f64();
+
+    // Print evidence (visible with --nocapture).
+    println!(
+        "[perf] produce: {N} records in {:.1}ms → {:.0} records/sec",
+        produce_elapsed.as_secs_f64() * 1000.0,
+        produce_rps
+    );
+    println!(
+        "[perf] fetch:   {fetched} records in {:.1}ms → {:.0} records/sec",
+        fetch_elapsed.as_secs_f64() * 1000.0,
+        fetch_rps
+    );
+
+    assert_eq!(fetched, N, "all {N} produced records must be fetchable");
+}
+
 /// Consumer group commits survive "restart" (new Server instance, same backing stores).
 ///
 /// Satisfies fjord-6ab8369e AC #2: "Java Kafka consumer group can join, fetch,
