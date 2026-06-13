@@ -453,6 +453,8 @@ dependencies = [
  "object-log",
  "parking_lot",
  "rdkafka",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]

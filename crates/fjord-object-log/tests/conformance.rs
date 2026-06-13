@@ -3,8 +3,8 @@
 // Runs under a multi-thread tokio runtime so that block_in_place inside
 // ObjectLogPartitionLog can call Handle::current().block_on().
 
-use fjord_object_log::{ObjectLogFjordConfig, ObjectLogFjordLog, ObjectLogPartitionLog};
-use heimq_broker::storage::{LogBackend, PartitionLog};
+use fjord_object_log::{ObjectLogFjordConfig, ObjectLogFjordLog, ObjectLogOffsetStore, ObjectLogPartitionLog};
+use heimq_broker::storage::{LogBackend, OffsetStore, PartitionLog};
 use heimq_testkit::suites;
 use object_log::{LocalObjectStore, MemoryObjectStore};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -202,5 +202,66 @@ fn object_log_fjord_fetch_fails_closed_on_corruption() {
                 || err_str.to_lowercase().contains("decode"),
             "error must indicate corruption, got: {err_str}"
         );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// ObjectLogOffsetStore conformance tests
+// ---------------------------------------------------------------------------
+
+/// OffsetStore conformance suite backed by MemoryObjectStore.
+#[test]
+fn object_log_offset_store_memory_suite() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    rt.block_on(async {
+        let store = Arc::new(MemoryObjectStore::default());
+        let offset_store = ObjectLogOffsetStore::new(store);
+        suites::offset_store::run_all(offset_store.as_ref());
+    });
+}
+
+/// OffsetStore conformance suite backed by LocalObjectStore.
+#[test]
+fn object_log_offset_store_local_suite() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    rt.block_on(async {
+        let store = Arc::new(LocalObjectStore::new(dir.path()));
+        let offset_store = ObjectLogOffsetStore::new(store);
+        suites::offset_store::run_all(offset_store.as_ref());
+    });
+}
+
+/// Offsets survive across ObjectLogOffsetStore instance recreation (same backing store).
+#[test]
+fn object_log_offset_store_survives_recreate() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    rt.block_on(async {
+        let store = Arc::new(MemoryObjectStore::default());
+
+        // Commit via first instance.
+        {
+            let os = ObjectLogOffsetStore::new(store.clone());
+            os.commit("g1", "my-topic", 0, 42, 0, None).expect("commit");
+        }
+
+        // Fetch via second instance sharing the same backing store.
+        {
+            let os2 = ObjectLogOffsetStore::new(store.clone());
+            let co = os2.fetch("g1", "my-topic", 0).expect("fetch after recreate");
+            assert_eq!(co.offset, 42, "offset must survive instance recreation");
+        }
     });
 }
