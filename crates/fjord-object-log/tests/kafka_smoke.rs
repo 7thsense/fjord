@@ -438,3 +438,111 @@ async fn object_log_kafka_compressed_roundtrip() {
 
     assert_eq!(count, N, "all {N} zstd-compressed records must be fetchable");
 }
+
+/// Two consumers in the same group drain a 4-partition topic without gaps or duplicates.
+///
+/// Verifies that partition assignment across multiple group members works correctly
+/// with the object-log backend — a critical multi-member rebalance scenario.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn object_log_kafka_multi_consumer_group_delivery() {
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    let topic = "multi-consumer-group";
+    const PARTITIONS: i32 = 4;
+    const N: usize = 200;
+    let group = "multi-cg-group";
+
+    let (server, port) = start_object_log_server_with_topics(&[(topic, PARTITIONS)]);
+    let bootstrap = format!("127.0.0.1:{port}");
+
+    tokio::spawn(async move { server.run().await.ok() });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Produce N records spread across all partitions.
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", &bootstrap)
+        .set("message.timeout.ms", "10000")
+        .create()
+        .expect("producer");
+
+    let mut produced: HashSet<String> = HashSet::new();
+    for i in 0..N {
+        let key = format!("key-{i:04}");
+        let value = format!("val-{i}");
+        producer
+            .send(
+                FutureRecord::to(topic).payload(value.as_bytes()).key(key.as_bytes()),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("produce");
+        produced.insert(value);
+    }
+    assert_eq!(produced.len(), N);
+
+    // Two consumers in the same group; collect messages with a shared set.
+    let received: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+
+    let make_consumer = move |bs: String| -> BaseConsumer {
+        ClientConfig::new()
+            .set("bootstrap.servers", &bs)
+            .set("group.id", group)
+            .set("auto.offset.reset", "earliest")
+            .set("enable.auto.commit", "false")
+            .create()
+            .expect("consumer")
+    };
+
+    let bs1 = bootstrap.clone();
+    let bs2 = bootstrap.clone();
+    let recv1 = received.clone();
+    let recv2 = received.clone();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+
+    let h1 = tokio::task::spawn_blocking(move || {
+        let c = make_consumer(bs1);
+        c.subscribe(&[topic]).expect("subscribe");
+        while std::time::Instant::now() < deadline {
+            if let Some(Ok(msg)) = c.poll(Duration::from_millis(100)) {
+                if let Some(payload) = msg.payload() {
+                    let s = String::from_utf8_lossy(payload).to_string();
+                    recv1.lock().unwrap().insert(s);
+                }
+                if recv1.lock().unwrap().len() >= N {
+                    break;
+                }
+            }
+        }
+    });
+
+    let h2 = tokio::task::spawn_blocking(move || {
+        let c = make_consumer(bs2);
+        c.subscribe(&[topic]).expect("subscribe");
+        while std::time::Instant::now() < deadline {
+            if let Some(Ok(msg)) = c.poll(Duration::from_millis(100)) {
+                if let Some(payload) = msg.payload() {
+                    let s = String::from_utf8_lossy(payload).to_string();
+                    recv2.lock().unwrap().insert(s);
+                }
+                if recv2.lock().unwrap().len() >= N {
+                    break;
+                }
+            }
+        }
+    });
+
+    h1.await.expect("consumer1");
+    h2.await.expect("consumer2");
+
+    let got = received.lock().unwrap().clone();
+    assert_eq!(
+        got.len(),
+        N,
+        "expected {N} unique values; got {} — missing {} records",
+        got.len(),
+        N - got.len().min(N)
+    );
+    assert_eq!(got, produced, "consumed set must equal produced set");
+}
