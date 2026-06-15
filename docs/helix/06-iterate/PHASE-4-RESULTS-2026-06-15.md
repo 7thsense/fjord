@@ -52,6 +52,42 @@ indicative, not a production benchmark.
 
 ## Remaining to fully discharge the PRD
 
-Postgres `CoordinatorStore`; multi-partition / consumer-group / EOS differential;
-durable-path latency benchmark; SPIKE-001 on a real coordinator backend; broader
-Kafka API/version coverage per the API-001 capability matrix.
+Multi-partition / consumer-group / EOS differential; durable-path *latency*
+benchmark (tail latency + flush-timeout dial); real Jepsen; broader Kafka
+API/version coverage per the API-001 capability matrix.
+
+## Update 2026-06-15 — durable backend implemented + durable-path throughput measured
+
+Several caveats above are now discharged:
+
+- **Postgres `CoordinatorStore` implemented** (`fjord-coordinator/src/postgres.rs`):
+  async-native `tokio-postgres` + `deadpool` pool; `commit_object` is one
+  transaction taking `SELECT … FOR UPDATE` per-partition row locks (different
+  partitions commit concurrently). Proven against live Postgres via the
+  differential-vs-`MemoryCoordinator` oracle, the three heimq-testkit conformance
+  suites, and an 8-thread concurrency test.
+- **Durable-path throughput measured** (`fjord-heimq-backend/tests/perf_durable.rs`,
+  50k × 64 B records, 1 partition, local Postgres, debug build):
+
+  | Config | Produce | Consume |
+  |---|---|---|
+  | memory coord + memory store (baseline) | 655,763 rec/s | 355,687 rec/s |
+  | Postgres coord + memory store | 546,133 rec/s | 346,802 rec/s |
+
+  Durable sequencing costs **−17 % produce / −2 % consume** vs in-memory. This
+  confirms the ADR-006/SPIKE-001 amortization bet: client batching means one
+  `commit_object` (one Postgres txn) sequences a whole batch, so the per-record
+  coordinator cost is txn-latency ÷ batch-size. With the in-memory differential
+  at 5.96× real Kafka (same harness), durable fjord is ~**4.9× real Kafka**
+  produce throughput, transitively.
+- **Fault tolerance** (`fjord-log/tests/dst_faults.rs`): 300+ seeded
+  fault-injection schedules (PUT / pre-commit / ack-loss) prove no lost acked
+  writes, no duplication under ack-loss (idempotent fencing), gapless ordering,
+  no phantom reads, stateless-restart recovery.
+- **Deployable**: container image + Helm chart (singleLogical / multiBroker),
+  end-to-end green on kind in both modes (real Kafka client, bundled
+  Postgres + MinIO).
+
+Still outstanding: durable-path **latency** (this is throughput only); real S3
+(Garage) full-durable run (`FJORD_GARAGE_SECRET`); EOS / consumer-group
+differential; Jepsen; coordinator-crash recovery.
