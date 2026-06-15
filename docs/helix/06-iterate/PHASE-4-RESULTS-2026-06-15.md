@@ -88,6 +88,38 @@ Several caveats above are now discharged:
   end-to-end green on kind in both modes (real Kafka client, bundled
   Postgres + MinIO).
 
-Still outstanding: durable-path **latency** (this is throughput only); real S3
-(Garage) full-durable run (`FJORD_GARAGE_SECRET`); EOS / consumer-group
-differential; Jepsen; coordinator-crash recovery.
+### Durable-path latency + the cost dial (`tests/perf_latency.rs`)
+
+**A. Latency floor** — synchronous produce, `acks=all`, one in-flight, no
+batching (worst case: one `commit_object` per record):
+
+| Coordinator | p50 | p99 | p999 | max |
+|---|---|---|---|---|
+| memory | 0.04 ms | 0.15 ms | 0.43 ms | 2.37 ms |
+| Postgres | 5.05 ms | 211.94 ms | 217.79 ms | 218.44 ms |
+
+**B. Cost dial** — `linger.ms` sweep, Postgres coordinator, 30k × 64 B, 1 partition:
+
+| linger.ms | throughput | L0 objects (= commits) | recs/object |
+|---|---|---|---|
+| 0 | 2,091 r/s | 1,976 | 15 |
+| 1 | 233,872 r/s | 19 | 1,578 |
+| 25 | 511,408 r/s | 3 | 10,000 |
+| 100 | 491,307 r/s | 3 | 10,000 |
+
+The dial is the headline: **1 ms of batching collapses commit count ~100× and
+lifts throughput ~110×** — tail-latency *is* the cost lever (ADR-006). The
+honest caveat: **unbatched Postgres produce has a fat p99 (~212 ms)** while p50
+is 5 ms — the bimodal shape points at Postgres WAL fsync stalls
+(`synchronous_commit=on`, amplified by the container overlay fs), not a fjord
+design flaw, and it is exactly what batching/flush-buffering removes.
+
+Two follow-ups this surfaces: (i) measure per-record latency under a small
+server-side flush window (the "better-than-classic-Kafka latency" bar — classic
+Kafka p99 is low-tens-of-ms); (ii) implement TD-005 **server-side flush
+buffering** so the dial works independent of client `linger.ms` and the
+unbatched tail never reaches clients; consider coordinator group-commit /
+`synchronous_commit` tuning.
+
+Still outstanding: real S3 (Garage) full-durable run (`FJORD_GARAGE_SECRET`);
+EOS / consumer-group differential; Jepsen; coordinator-crash recovery.
