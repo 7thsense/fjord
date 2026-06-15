@@ -12,7 +12,9 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc::{sync_channel, SyncSender};
+use std::sync::{Arc, Weak};
+use std::time::{Duration, Instant};
 
 use fjord_coordinator::{BatchMeta, CommitOutcome, CoordinatorError, CoordinatorStore};
 use fjord_log::BlobStore;
@@ -22,19 +24,156 @@ use heimq_broker::storage::{
     OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode, TopicConfig,
     TopicLog,
 };
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
+
+/// Server-side flush buffering (TD-005 / ADR-006). Many client produce requests
+/// across partitions are coalesced into ONE multiplexed L0 object + ONE
+/// `commit_object`, amortizing the durable-commit cost. The flush is triggered
+/// by a timeout (the cost dial), a byte cap, or a batch-count cap.
+#[derive(Clone, Copy, Debug)]
+pub struct FlushConfig {
+    /// Max time the oldest buffered batch waits before a flush. `ZERO` =
+    /// group-commit-on-demand: flush immediately at low load, coalesce whatever
+    /// accumulates while a flush is in flight under load (no added latency).
+    pub timeout: Duration,
+    /// Flush once the buffered object reaches this many bytes.
+    pub max_bytes: usize,
+    /// Flush once this many batches are buffered.
+    pub max_batches: usize,
+}
+
+impl Default for FlushConfig {
+    fn default() -> Self {
+        Self { timeout: Duration::ZERO, max_bytes: 8 * 1024 * 1024, max_batches: 10_000 }
+    }
+}
+
+/// One buffered append awaiting its coordinator-assigned offset.
+struct Pending {
+    meta: BatchMeta,
+    bytes: Vec<u8>,
+    resp: SyncSender<Result<(i64, i64)>>,
+}
+
+#[derive(Default)]
+struct FlushState {
+    queue: Vec<Pending>,
+    /// When the current (non-empty) queue's first batch was enqueued.
+    oldest: Option<Instant>,
+}
+
+/// Shared group-commit buffer for a backend. Appends enqueue here and block on
+/// their `resp`; a single background thread flushes.
+struct Flusher {
+    coordinator: Arc<dyn CoordinatorStore>,
+    blob: Arc<dyn BlobStore>,
+    next_object: AtomicU64,
+    state: Mutex<FlushState>,
+    cv: Condvar,
+    cfg: FlushConfig,
+}
+
+impl Flusher {
+    /// Enqueue a batch and block until the flusher assigns its offset.
+    fn append(&self, meta: BatchMeta, bytes: Vec<u8>) -> Result<(i64, i64)> {
+        let (tx, rx) = sync_channel(1);
+        {
+            let mut st = self.state.lock();
+            if st.queue.is_empty() {
+                st.oldest = Some(Instant::now());
+            }
+            st.queue.push(Pending { meta, bytes, resp: tx });
+        }
+        self.cv.notify_one();
+        rx.recv().unwrap_or_else(|_| Err(HeimqError::Protocol("flusher stopped".into())))
+    }
+
+    /// One flush iteration: either flush a due batch, or wait for one.
+    fn flush_cycle(&self) {
+        let batch = {
+            let mut st = self.state.lock();
+            if st.queue.is_empty() {
+                self.cv.wait_for(&mut st, Duration::from_millis(50));
+                return;
+            }
+            let waited = st.oldest.map(|t| t.elapsed()).unwrap_or_default();
+            let bytes: usize = st.queue.iter().map(|p| p.bytes.len()).sum();
+            let due = waited >= self.cfg.timeout
+                || bytes >= self.cfg.max_bytes
+                || st.queue.len() >= self.cfg.max_batches;
+            if !due {
+                let remaining =
+                    self.cfg.timeout.saturating_sub(waited).max(Duration::from_micros(50));
+                self.cv.wait_for(&mut st, remaining);
+                return;
+            }
+            st.oldest = None;
+            std::mem::take(&mut st.queue)
+        };
+        self.do_flush(batch);
+    }
+
+    /// Build one multiplexed object from the batch, PUT it, sequence it in one
+    /// `commit_object` (atomic on both backends), and hand each waiter its
+    /// assigned offset.
+    fn do_flush(&self, batch: Vec<Pending>) {
+        if batch.is_empty() {
+            return;
+        }
+        let mut object = Vec::new();
+        let mut metas = Vec::with_capacity(batch.len());
+        for p in &batch {
+            let start = object.len() as u32;
+            object.extend_from_slice(&p.bytes);
+            let mut m = p.meta.clone();
+            m.byte_start = start;
+            m.byte_len = p.bytes.len() as u32;
+            metas.push(m);
+        }
+        let n = self.next_object.fetch_add(1, Ordering::SeqCst);
+        let object_id = format!("seg/{n:020}");
+
+        if let Err(e) = self.blob.put(&object_id, object) {
+            for p in batch {
+                let _ = p.resp.send(Err(HeimqError::Protocol(format!("blob put: {e}"))));
+            }
+            return;
+        }
+        match self.coordinator.commit_object(&object_id, &metas) {
+            Ok(outcomes) => {
+                for (p, outcome) in batch.into_iter().zip(outcomes) {
+                    let base = match outcome {
+                        CommitOutcome::Assigned { base_offset, .. } => base_offset,
+                        CommitOutcome::Duplicate { base_offset } => base_offset,
+                    };
+                    let _ = p.resp.send(Ok((base, p.meta.record_count as i64)));
+                }
+            }
+            Err(e) => {
+                // commit_object is all-or-nothing, so nothing was committed:
+                // surface the error to every waiter; clients retry safely.
+                let msg = e.to_string();
+                for p in batch {
+                    let _ = p.resp.send(Err(HeimqError::Protocol(msg.clone())));
+                }
+            }
+        }
+    }
+}
 
 fn coord_err(e: CoordinatorError) -> HeimqError {
     HeimqError::Protocol(e.to_string())
 }
 
-/// A partition served by the coordinator + a blob store.
+/// A partition served by the coordinator + a blob store. Appends go through the
+/// shared [`Flusher`] (server-side group commit); reads resolve the coordinator
+/// index directly.
 struct CoordinatorPartitionLog {
     topic: String,
     partition: i32,
     coordinator: Arc<dyn CoordinatorStore>,
     blob: Arc<dyn BlobStore>,
-    next_object: Arc<AtomicU64>,
+    flusher: Arc<Flusher>,
 }
 
 impl PartitionLog for CoordinatorPartitionLog {
@@ -44,32 +183,19 @@ impl PartitionLog for CoordinatorPartitionLog {
 
     fn append(&self, view: &RecordBatchView<'_>, raw_bytes: Option<&[u8]>) -> Result<(i64, i64)> {
         let bytes = raw_bytes.unwrap_or_else(|| view.raw());
-        let count = view.record_count() as i32;
-        // Durable-then-sequence (TD-005): PUT the object, then commit.
-        let n = self.next_object.fetch_add(1, Ordering::SeqCst);
-        let object_id = format!("seg/{}/{}/{:020}", self.topic, self.partition, n);
-        self.blob
-            .put(&object_id, bytes.to_vec())
-            .map_err(HeimqError::Protocol)?;
+        // Enqueue into the shared flush buffer; byte_start/byte_len are filled in
+        // when the batch is multiplexed into an object at flush time.
         let meta = BatchMeta {
             topic: self.topic.clone(),
             partition: self.partition,
             producer_id: view.producer_id(),
             producer_epoch: view.producer_epoch(),
             base_sequence: view.base_sequence(),
-            record_count: count,
+            record_count: view.record_count() as i32,
             byte_start: 0,
-            byte_len: bytes.len() as u32,
+            byte_len: 0,
         };
-        let out = self
-            .coordinator
-            .commit_object(&object_id, std::slice::from_ref(&meta))
-            .map_err(coord_err)?;
-        let base = match out[0] {
-            CommitOutcome::Assigned { base_offset, .. } => base_offset,
-            CommitOutcome::Duplicate { base_offset } => base_offset,
-        };
-        Ok((base, count as i64))
+        self.flusher.append(meta, bytes.to_vec())
     }
 
     fn read(&self, offset: i64, max_bytes: usize, _wait: FetchWait) -> Result<(Vec<u8>, i64)> {
@@ -180,21 +306,55 @@ static CAPS: BackendCapabilities = BackendCapabilities {
     truncate: false,
 };
 
-/// `LogBackend` over the fjord coordinator + a blob store.
+/// `LogBackend` over the fjord coordinator + a blob store, with server-side
+/// flush buffering (TD-005).
 pub struct CoordinatorLogBackend {
     coordinator: Arc<dyn CoordinatorStore>,
     blob: Arc<dyn BlobStore>,
     topics: Mutex<HashMap<String, Arc<CoordinatorTopicLog>>>,
-    next_object: Arc<AtomicU64>,
+    flusher: Arc<Flusher>,
 }
 
 impl CoordinatorLogBackend {
+    /// Default flush config (group-commit-on-demand: `timeout = 0`).
     pub fn new(coordinator: Arc<dyn CoordinatorStore>, blob: Arc<dyn BlobStore>) -> Self {
+        Self::with_flush_config(coordinator, blob, FlushConfig::default())
+    }
+
+    /// Build a backend with an explicit flush policy (the ADR-006 cost dial).
+    pub fn with_flush_config(
+        coordinator: Arc<dyn CoordinatorStore>,
+        blob: Arc<dyn BlobStore>,
+        cfg: FlushConfig,
+    ) -> Self {
+        let flusher = Arc::new(Flusher {
+            coordinator: Arc::clone(&coordinator),
+            blob: Arc::clone(&blob),
+            next_object: AtomicU64::new(0),
+            state: Mutex::new(FlushState::default()),
+            cv: Condvar::new(),
+            cfg,
+        });
+        // Background flush thread. It holds a Weak ref and re-upgrades each cycle,
+        // so when the backend AND all partitions are dropped (strong count → 0)
+        // the thread exits. An in-flight append always holds a partition (hence a
+        // strong ref), so no waiter is ever orphaned.
+        let weak: Weak<Flusher> = Arc::downgrade(&flusher);
+        std::thread::Builder::new()
+            .name("fjord-flush".into())
+            .spawn(move || {
+                while let Some(f) = weak.upgrade() {
+                    f.flush_cycle();
+                    drop(f);
+                }
+            })
+            .expect("spawn flush thread");
+
         Self {
             coordinator,
             blob,
             topics: Mutex::new(HashMap::new()),
-            next_object: Arc::new(AtomicU64::new(0)),
+            flusher,
         }
     }
 
@@ -206,7 +366,7 @@ impl CoordinatorLogBackend {
                     partition: p,
                     coordinator: Arc::clone(&self.coordinator),
                     blob: Arc::clone(&self.blob),
-                    next_object: Arc::clone(&self.next_object),
+                    flusher: Arc::clone(&self.flusher),
                 })
             })
             .collect();

@@ -97,17 +97,18 @@ impl PgCoordinator {
             .build()
             .map_err(|e| CoordinatorError::Backend(format!("pool build: {e}")))?;
 
-        // Only own a runtime when there isn't one to borrow.
-        let owned_rt = match Handle::try_current() {
-            Ok(_) => None,
-            Err(_) => Some(
-                tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()
-                    .map_err(|e| CoordinatorError::Backend(format!("runtime: {e}")))?,
-            ),
-        };
+        // Always own a runtime: callers may run on a tokio worker (reuse the
+        // current handle via block_in_place) OR on a plain OS thread with no
+        // ambient runtime (e.g. the server-side flush thread, which calls
+        // commit_object). The owned runtime is the fallback for the latter, so it
+        // must exist regardless of the runtime context at connect time.
+        let owned_rt = Some(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|e| CoordinatorError::Backend(format!("runtime: {e}")))?,
+        );
 
         let me = Self { pool, owned_rt };
         // Retry the first connection/schema init: a coordinator that is still
