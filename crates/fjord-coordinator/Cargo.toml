@@ -1,0 +1,27 @@
+[package]
+name = "fjord-coordinator"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CoordinatorStore trait (COORD-001) and in-memory reference backend for fjord"
+
+[dependencies]
+parking_lot = "0.12"
+tokio-postgres = { version = "0.7", optional = true }
+deadpool-postgres = { version = "0.14", optional = true }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread"] }
+
+[features]
+default = []
+# Postgres-backed CoordinatorStore (ADR-008 default production backend).
+# Async-native: tokio-postgres + a deadpool connection pool, so commits to
+# different partitions run concurrently (serialized only by per-partition row
+# locks). Bridged to the synchronous CoordinatorStore trait the way fjord-log's
+# S3BlobStore bridges async S3 — block_in_place + the current runtime handle.
+postgres-backend = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:tokio"]
+
+[dev-dependencies]
+proptest = "1"
