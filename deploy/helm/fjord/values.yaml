@@ -1,0 +1,93 @@
+# Default values for fjord.
+#
+# Two profiles:
+#   * kind / local: postgres.enabled=true, minio.enabled=true (self-contained).
+#   * EKS / prod:   postgres.enabled=false, minio.enabled=false; point coordinator
+#                   at RDS and objectStore at real S3 (see the prod example below).
+
+image:
+  repository: fjord
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# Topology mode:
+#   singleLogical — the whole cluster is presented as ONE Kafka broker at the
+#     Service DNS. Pods are fungible (Deployment + HPA); the Service L4-balances
+#     client connections; any pod serves any partition. Simplest config, scales
+#     elastically. Default.
+#   multiBroker — each pod is a distinct Kafka broker with stable identity
+#     (StatefulSet + headless Service): clients learn N brokers with balanced
+#     partition leadership and connect DIRECTLY to each pod, skipping the Service
+#     hop. Better raw throughput (no L4 indirection, client-side load spread),
+#     at the cost of a fixed broker count (scale via `helm upgrade --set
+#     replicaCount=N`, which re-renders the peer list and rolls the StatefulSet).
+mode: singleLogical
+
+# Broker count. In singleLogical mode this is the Deployment baseline (HPA may
+# raise it); in multiBroker mode it is the fixed number of brokers.
+replicaCount: 3
+
+broker:
+  # Kafka port the broker listens on and the Service exposes.
+  port: 9092
+  # Hostname clients are told to connect to. Defaults (via the template) to the
+  # in-cluster Service DNS, which is correct when clients run inside the cluster.
+  # For external clients (e.g. across the internet to EKS) set this to the
+  # LoadBalancer / ingress hostname and expose the Service accordingly.
+  advertisedHost: ""
+  # Topics to pre-create at startup, "name:partitions".
+  createTopics: []
+  # Extra env (e.g. RUST_LOG / FJORD_LOG).
+  extraEnv:
+    FJORD_LOG: "info"
+
+# Coordinator (sequencing + metadata). When postgres.enabled, the URL is derived
+# from the bundled Postgres; otherwise set coordinator.url explicitly (e.g. RDS).
+coordinator:
+  url: ""          # e.g. postgresql://user:pass@db.host:5432/fjord
+  schema: ""        # optional ?schema=, blank = public
+
+# Object store for the durable log.
+objectStore:
+  type: s3          # "s3" or "memory" (memory is single-pod only; never multi-broker)
+  endpoint: ""      # blank = AWS S3 default endpoint; set for MinIO/Garage
+  region: us-east-1
+  bucket: fjord
+  accessKey: ""
+  secretKey: ""
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+# HPA applies to singleLogical mode only (multiBroker has a fixed broker count).
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  targetCPUUtilizationPercentage: 70
+
+# --- Bundled dependencies for local/kind testing (NOT for production) ---
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  user: fjord
+  password: fjord
+  database: fjord
+  storage: ""        # blank = emptyDir (ephemeral; fine for tests)
+
+minio:
+  enabled: true
+  image: minio/minio:latest
+  mcImage: minio/mc:latest
+  rootUser: fjord
+  rootPassword: fjordfjord
+  bucket: fjord

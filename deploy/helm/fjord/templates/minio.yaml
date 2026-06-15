@@ -1,0 +1,95 @@
+{{- if .Values.minio.enabled }}
+{{/* Bundled MinIO (S3) for local/kind testing only. Production should disable
+     this and use real S3 (objectStore.endpoint blank → AWS default). */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fjord.minioName" . }}
+  labels:
+    {{- include "fjord.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "fjord.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fjord.minioName" . }}
+  labels:
+    {{- include "fjord.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "fjord.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        {{- include "fjord.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: minio
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image }}
+          args: ["server", "/data", "--address", ":9000"]
+          env:
+            - name: MINIO_ROOT_USER
+              value: {{ .Values.minio.rootUser | quote }}
+            - name: MINIO_ROOT_PASSWORD
+              value: {{ .Values.minio.rootPassword | quote }}
+          ports:
+            - containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+{{/* Create the bucket once MinIO is up. Runs as a post-install/upgrade hook so
+     the broker finds its bucket on first PUT. */}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "fjord.minioName" . }}-mkbucket
+  labels:
+    {{- include "fjord.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        {{- include "fjord.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: minio-mkbucket
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: {{ .Values.minio.mcImage }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              until mc alias set fj http://{{ include "fjord.minioName" . }}:9000 {{ .Values.minio.rootUser | quote }} {{ .Values.minio.rootPassword | quote }}; do
+                echo "waiting for minio..."; sleep 2;
+              done
+              mc mb --ignore-existing fj/{{ .Values.minio.bucket }}
+              echo "bucket {{ .Values.minio.bucket }} ready"
+{{- end }}

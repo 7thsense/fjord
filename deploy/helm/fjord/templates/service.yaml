@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fjord.fullname" . }}
+  labels:
+    {{- include "fjord.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "fjord.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: kafka
+      port: {{ .Values.broker.port }}
+      targetPort: kafka
+{{- if eq .Values.mode "multiBroker" }}
+---
+{{/* Headless service: gives each StatefulSet pod stable DNS
+     (<sts>-<ordinal>.<headless>) so clients can address brokers directly. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fjord.headlessName" . }}
+  labels:
+    {{- include "fjord.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "fjord.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: kafka
+      port: {{ .Values.broker.port }}
+      targetPort: kafka
+{{- end }}

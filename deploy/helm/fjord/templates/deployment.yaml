@@ -1,0 +1,88 @@
+{{- if eq .Values.mode "singleLogical" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fjord.fullname" . }}
+  labels:
+    {{- include "fjord.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "fjord.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fjord.selectorLabels" . | nindent 8 }}
+    spec:
+      # Stateless: any pod is interchangeable. All pods present the same logical
+      # broker (node 0) at the Service DNS; the Service load-balances client
+      # connections and any pod serves any partition via the shared coordinator.
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        - name: wait-for-coordinator
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z {{ include "fjord.postgresName" . }} 5432; do echo waiting for postgres; sleep 2; done"]
+      {{- end }}
+      containers:
+        - name: fjord
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: kafka
+              containerPort: {{ .Values.broker.port }}
+          env:
+            - name: FJORD_HOST
+              value: "0.0.0.0"
+            - name: FJORD_PORT
+              value: {{ .Values.broker.port | quote }}
+            - name: FJORD_BROKER_ID
+              value: "0"
+            - name: FJORD_ADVERTISED_HOST
+              value: {{ include "fjord.advertisedHost" . | quote }}
+            - name: FJORD_ADVERTISED_PORT
+              value: {{ .Values.broker.port | quote }}
+            - name: FJORD_OBJECT_STORE
+              value: {{ .Values.objectStore.type | quote }}
+            {{- if eq .Values.objectStore.type "s3" }}
+            {{- with (include "fjord.s3Endpoint" .) }}
+            - name: FJORD_S3_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            - name: FJORD_S3_REGION
+              value: {{ .Values.objectStore.region | quote }}
+            - name: FJORD_S3_BUCKET
+              value: {{ .Values.objectStore.bucket | quote }}
+            {{- end }}
+            {{- range $k, $v := .Values.broker.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- range .Values.broker.createTopics }}
+            {{- /* repeated flags aren't env-expressible; pass via args below */ -}}
+            {{- end }}
+          {{- if .Values.broker.createTopics }}
+          args:
+            {{- range .Values.broker.createTopics }}
+            - "--create-topic"
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "fjord.fullname" . }}
+          readinessProbe:
+            tcpSocket:
+              port: kafka
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: kafka
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}
