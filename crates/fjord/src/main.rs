@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use fjord_broker::{ClusterMembership, FjordMultiBrokerClusterView};
 use fjord_coordinator::{memory::MemoryCoordinator, postgres::PgCoordinator, CoordinatorStore};
-use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore};
+use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore, FlushConfig};
 use fjord_log::{s3::S3BlobStore, BlobStore, MemoryBlobStore};
 use heimq::server::Server;
 use heimq_broker::storage::{BrokerInfo, LogBackend, OffsetStore};
@@ -72,6 +72,19 @@ struct Args {
     /// Pre-create topics as `name:partitions` (repeatable).
     #[arg(long = "create-topic")]
     create_topics: Vec<String>,
+
+    /// Server-side flush window in milliseconds — the ADR-006 cost dial. Higher
+    /// values coalesce more produce requests into one object + one coordinator
+    /// commit (lower $/record) at higher per-record latency. 0 (default) =
+    /// group-commit-on-demand: flush immediately at low load, coalesce under load.
+    #[arg(long, env = "FJORD_FLUSH_TIMEOUT_MS", default_value_t = 0)]
+    flush_timeout_ms: u64,
+    /// Flush once a buffered object reaches this many bytes.
+    #[arg(long, env = "FJORD_FLUSH_MAX_BYTES", default_value_t = 8 * 1024 * 1024)]
+    flush_max_bytes: usize,
+    /// Flush once this many batches are buffered.
+    #[arg(long, env = "FJORD_FLUSH_MAX_BATCHES", default_value_t = 10_000)]
+    flush_max_batches: usize,
 }
 
 fn parse_peer(s: &str) -> Result<BrokerInfo> {
@@ -132,8 +145,22 @@ async fn main() -> Result<()> {
     let coordinator = build_coordinator(&args.coordinator_url)?;
     let blob = build_object_store(&args)?;
 
-    let backend: Arc<dyn LogBackend> =
-        Arc::new(CoordinatorLogBackend::new(Arc::clone(&coordinator), Arc::clone(&blob)));
+    let flush = FlushConfig {
+        timeout: std::time::Duration::from_millis(args.flush_timeout_ms),
+        max_bytes: args.flush_max_bytes,
+        max_batches: args.flush_max_batches,
+    };
+    info!(
+        flush_timeout_ms = args.flush_timeout_ms,
+        flush_max_bytes = args.flush_max_bytes,
+        flush_max_batches = args.flush_max_batches,
+        "flush dial"
+    );
+    let backend: Arc<dyn LogBackend> = Arc::new(CoordinatorLogBackend::with_flush_config(
+        Arc::clone(&coordinator),
+        Arc::clone(&blob),
+        flush,
+    ));
     let offsets: Arc<dyn OffsetStore> =
         Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coordinator)));
 

@@ -37,6 +37,12 @@ broker:
   advertisedHost: ""
   # Topics to pre-create at startup, "name:partitions".
   createTopics: []
+  # Server-side flush dial (ADR-006 cost lever). Higher flushTimeoutMs coalesces
+  # more produce requests into one object + one coordinator commit (lower
+  # $/record) at higher per-record latency. 0 = group-commit-on-demand.
+  flushTimeoutMs: 0
+  flushMaxBytes: 8388608
+  flushMaxBatches: 10000
   # Extra env (e.g. RUST_LOG / FJORD_LOG).
   extraEnv:
     FJORD_LOG: "info"

@@ -65,6 +65,12 @@ spec:
             - name: FJORD_S3_BUCKET
               value: {{ .Values.objectStore.bucket | quote }}
             {{- end }}
+            - name: FJORD_FLUSH_TIMEOUT_MS
+              value: {{ .Values.broker.flushTimeoutMs | quote }}
+            - name: FJORD_FLUSH_MAX_BYTES
+              value: {{ .Values.broker.flushMaxBytes | quote }}
+            - name: FJORD_FLUSH_MAX_BATCHES
+              value: {{ .Values.broker.flushMaxBatches | quote }}
             {{- range $k, $v := .Values.broker.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}
