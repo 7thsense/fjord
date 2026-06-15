@@ -1,0 +1,30 @@
+[package]
+name = "fjord"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "fjord broker: a stateless Kafka-compatible broker over a pluggable coordinator + object storage (ADR-008)"
+
+[[bin]]
+name = "fjord"
+path = "src/main.rs"
+
+[dependencies]
+heimq = { path = "../../../heimq/crates/heimq" }
+heimq-broker = { path = "../../../heimq/crates/heimq-broker" }
+fjord-coordinator = { path = "../fjord-coordinator", features = ["postgres-backend"] }
+fjord-log = { path = "../fjord-log" }
+fjord-heimq-backend = { path = "../fjord-heimq-backend" }
+fjord-broker = { path = "../fjord-broker" }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+[dev-dependencies]
+rdkafka = { version = "0.36", features = ["cmake-build", "tokio"] }
+tokio = { version = "1", features = ["full"] }
