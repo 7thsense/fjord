@@ -152,56 +152,68 @@ impl CoordinatorStore for MemoryCoordinator {
             }
         }
 
+        // Pass 1 — validate + compute outcomes against WORKING overlays, mutating
+        // nothing. Any check failure returns `Err` here, BEFORE any state change,
+        // so a single poison batch (e.g. OutOfOrderSequence) cannot partially
+        // commit the innocent batches multiplexed into the same object. (Postgres
+        // gets this from the surrounding transaction; here we stage explicitly.)
+        let mut work_hw: HashMap<(String, i32), i64> = HashMap::new();
+        // Working producer (epoch, next_seq) for producers established either in
+        // committed state or by an earlier batch in THIS call.
+        let mut established: HashMap<(i64, i32), (i16, i32)> = HashMap::new();
         let mut outcomes = Vec::with_capacity(batches.len());
-        for b in batches {
+        // Assigned batches to apply in pass 2: (index into `batches`, base_offset).
+        let mut applies: Vec<(usize, i64)> = Vec::new();
+
+        for (i, b) in batches.iter().enumerate() {
             let idem = b.producer_id >= 0;
             let key = (b.producer_id, b.partition);
 
             if idem {
-                match s.producers.get(&key) {
-                    Some(ps) => {
-                        // Epoch fence first.
-                        if b.producer_epoch < ps.epoch {
+                // Duplicate against COMMITTED state: a same-epoch retry of a
+                // recent sequence returns its original offset and does not advance.
+                if let Some(ps) = s.producers.get(&key) {
+                    if b.producer_epoch == ps.epoch {
+                        if let Some(&(_, off)) =
+                            ps.seq_to_offset.iter().find(|(sq, _)| *sq == b.base_sequence)
+                        {
+                            outcomes.push(CommitOutcome::Duplicate { base_offset: off });
+                            continue;
+                        }
+                    }
+                }
+                // Validate epoch/sequence against the established baseline.
+                let known = established
+                    .get(&key)
+                    .copied()
+                    .or_else(|| s.producers.get(&key).map(|ps| (ps.epoch, ps.next_seq)));
+                match known {
+                    Some((epoch, next_seq)) => {
+                        if b.producer_epoch < epoch {
                             return Err(CoordinatorError::InvalidProducerEpoch {
                                 producer_id: b.producer_id,
                                 partition: b.partition,
                             });
                         }
-                        if b.producer_epoch == ps.epoch {
-                            // Same-epoch retry of a recent batch → its original offset.
-                            if let Some(&(_, off)) =
-                                ps.seq_to_offset.iter().find(|(seq, _)| *seq == b.base_sequence)
-                            {
-                                outcomes.push(CommitOutcome::Duplicate { base_offset: off });
-                                continue;
-                            }
-                            // Otherwise the stream must stay gapless: the only
-                            // sequence we accept is the next expected one. A higher
-                            // (gap) or unrecognized-lower sequence is out of order —
-                            // this is the invariant that holds even when two brokers
-                            // submit one producer's batches concurrently.
-                            if b.base_sequence != ps.next_seq {
+                        if b.producer_epoch == epoch {
+                            if b.base_sequence != next_seq {
                                 return Err(CoordinatorError::OutOfOrderSequence {
                                     producer_id: b.producer_id,
                                     partition: b.partition,
-                                    expected: ps.next_seq,
+                                    expected: next_seq,
                                     got: b.base_sequence,
                                 });
                             }
-                        } else {
-                            // Newer epoch = fresh incarnation; sequence restarts at 0.
-                            if b.base_sequence != 0 {
-                                return Err(CoordinatorError::OutOfOrderSequence {
-                                    producer_id: b.producer_id,
-                                    partition: b.partition,
-                                    expected: 0,
-                                    got: b.base_sequence,
-                                });
-                            }
+                        } else if b.base_sequence != 0 {
+                            return Err(CoordinatorError::OutOfOrderSequence {
+                                producer_id: b.producer_id,
+                                partition: b.partition,
+                                expected: 0,
+                                got: b.base_sequence,
+                            });
                         }
                     }
-                    // First batch ever seen for this producer/partition must start
-                    // the sequence at 0 (an unknown producer mid-stream is a gap).
+                    // First batch ever for this producer/partition must start at 0.
                     None => {
                         if b.base_sequence != 0 {
                             return Err(CoordinatorError::OutOfOrderSequence {
@@ -213,15 +225,33 @@ impl CoordinatorStore for MemoryCoordinator {
                         }
                     }
                 }
+                // Advance the working baseline so later batches from the same
+                // producer in this call validate against it.
+                let cur_epoch = known.map(|(e, _)| e).unwrap_or(b.producer_epoch).max(b.producer_epoch);
+                established.insert(key, (cur_epoch, b.base_sequence + b.record_count));
             }
 
-            // Assign a contiguous range from the partition's current high-watermark.
+            // Assign a contiguous range from the working high-watermark.
+            let phw = work_hw
+                .entry((b.topic.clone(), b.partition))
+                .or_insert_with(|| s.partitions[&(b.topic.clone(), b.partition)].hw);
+            let base = *phw;
+            *phw += b.record_count as i64;
+            applies.push((i, base));
+            outcomes.push(CommitOutcome::Assigned {
+                base_offset: base,
+                record_count: b.record_count,
+            });
+        }
+
+        // Pass 2 — apply. Pass 1 validated everything, so this cannot fail.
+        for (i, base) in applies {
+            let b = &batches[i];
             let pstate = s
                 .partitions
                 .get_mut(&(b.topic.clone(), b.partition))
                 .expect("validated above");
-            let base = pstate.hw;
-            pstate.hw += b.record_count as i64;
+            pstate.hw = base + b.record_count as i64;
             pstate.index.push(IndexEntry {
                 object_id: object_id.to_string(),
                 byte_start: b.byte_start,
@@ -230,20 +260,19 @@ impl CoordinatorStore for MemoryCoordinator {
                 record_count: b.record_count,
             });
 
-            if idem {
+            if b.producer_id >= 0 {
+                let key = (b.producer_id, b.partition);
                 let ps = s.producers.entry(key).or_insert(ProducerState {
                     epoch: b.producer_epoch,
                     next_seq: 0,
                     seq_to_offset: Vec::new(),
                 });
-                // A newer epoch supersedes: adopt it and reset sequence tracking.
                 if b.producer_epoch > ps.epoch {
                     ps.epoch = b.producer_epoch;
                     ps.next_seq = 0;
                     ps.seq_to_offset.clear();
                 }
                 ps.seq_to_offset.push((b.base_sequence, base));
-                // Advance the gapless cursor past this batch's records.
                 ps.next_seq = b.base_sequence + b.record_count;
                 if ps.seq_to_offset.len() > 5 {
                     let drop = ps.seq_to_offset.len() - 5;
@@ -251,8 +280,6 @@ impl CoordinatorStore for MemoryCoordinator {
                 }
             }
 
-            // Transactional produce: record the range and hold LSO at the txn's
-            // first offset on this partition until end_txn.
             if let Some(txn) = s.transactions.get_mut(&b.producer_id) {
                 txn.produced
                     .push((b.topic.clone(), b.partition, base, b.record_count));
@@ -260,11 +287,6 @@ impl CoordinatorStore for MemoryCoordinator {
                     .entry((b.topic.clone(), b.partition))
                     .or_insert(base);
             }
-
-            outcomes.push(CommitOutcome::Assigned {
-                base_offset: base,
-                record_count: b.record_count,
-            });
         }
         Ok(outcomes)
     }

@@ -6,8 +6,61 @@
 //! offset monotonicity, contiguity (no gaps/dups), the object index reproducing
 //! the partition's sequence, and `LSO ≤ HW`.
 
-use fjord_coordinator::{memory::MemoryCoordinator, BatchMeta, CommitOutcome, CoordinatorStore};
+use fjord_coordinator::{
+    memory::MemoryCoordinator, BatchMeta, CommitOutcome, CoordinatorError, CoordinatorStore,
+};
 use proptest::prelude::*;
+
+/// Atomicity: a multiplexed `commit_object` is all-or-nothing — one poison batch
+/// (out-of-order idempotent sequence) must NOT partially commit the innocent
+/// batches sharing the object. (Required once a server-side flush multiplexes
+/// many producers into one object; would fail against a mutate-in-place commit.)
+#[test]
+fn commit_object_is_atomic_on_poison_batch() {
+    let c = MemoryCoordinator::new();
+    c.create_topic("t", 3).unwrap();
+    let pid = c.init_producer_id().unwrap();
+
+    let idem = |part: i32, seq: i32, count: i32| BatchMeta {
+        topic: "t".into(),
+        partition: part,
+        producer_id: pid.producer_id,
+        producer_epoch: pid.producer_epoch,
+        base_sequence: seq,
+        record_count: count,
+        byte_start: 0,
+        byte_len: 0,
+    };
+    let nonidem = |part: i32, count: i32| BatchMeta {
+        topic: "t".into(),
+        partition: part,
+        producer_id: -1,
+        producer_epoch: -1,
+        base_sequence: -1,
+        record_count: count,
+        byte_start: 0,
+        byte_len: 0,
+    };
+
+    // Establish the idempotent producer on partition 0 at seq 0..2.
+    c.commit_object("o0", &[idem(0, 0, 2)]).unwrap();
+
+    // Multiplex an innocent non-idempotent batch on partition 1 with a POISON
+    // idempotent batch on partition 0 (seq 5 — a gap; expected 2).
+    let good = nonidem(1, 3);
+    let r = c.commit_object("o1", &[good.clone(), idem(0, 5, 1)]);
+    assert!(matches!(r, Err(CoordinatorError::OutOfOrderSequence { .. })), "expected poison rejection, got {r:?}");
+
+    // The innocent batch must NOT have committed: partition 1 HW unchanged.
+    assert_eq!(c.high_watermark("t", 1).unwrap(), 0, "innocent batch partially committed");
+    assert_eq!(c.high_watermark("t", 0).unwrap(), 2, "poison batch leaked state");
+    assert!(c.index_lookup("t", 1, 0).unwrap().is_empty(), "innocent index entry leaked");
+
+    // Re-committing the innocent batch alone succeeds at offset 0 (it was never
+    // assigned by the failed multiplex).
+    let r2 = c.commit_object("o2", &[good]).unwrap();
+    assert_eq!(r2[0], CommitOutcome::Assigned { base_offset: 0, record_count: 3 });
+}
 
 const PARTS: i32 = 4;
 
