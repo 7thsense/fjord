@@ -634,6 +634,153 @@ impl ClusterView for FjordClusterView {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-broker cluster view (ADR-008 diskless model)
+// ---------------------------------------------------------------------------
+
+/// Stable, process-independent hash. `std`'s `DefaultHasher` is seeded randomly
+/// per process, which would make different broker pods disagree on leader/
+/// coordinator assignment — a correctness bug. FNV-1a is deterministic across
+/// processes, so every broker derives the *same* assignment from the same
+/// membership, no gossip required.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// Shared snapshot of cluster membership: the live broker set plus cluster id.
+///
+/// In production this is refreshed from the coordinator's broker-membership
+/// table (COORD-001); in tests it is constructed directly. Leader and
+/// group-coordinator assignment are *pure functions* of this membership, so
+/// they need no coordination to stay consistent across brokers — the diskless
+/// model's "leader" is only a client-routing/load-distribution hint, since any
+/// broker can serve any partition over the shared coordinator + object store.
+#[derive(Clone)]
+pub struct ClusterMembership {
+    /// Brokers sorted by `node_id` (stable ordering for deterministic modulo).
+    brokers: Arc<Vec<BrokerInfo>>,
+    cluster_id: String,
+}
+
+impl ClusterMembership {
+    /// Build a membership from a broker set. Brokers are sorted by `node_id`
+    /// so the index used for assignment is independent of insertion order.
+    pub fn new(mut brokers: Vec<BrokerInfo>, cluster_id: impl Into<String>) -> Self {
+        brokers.sort_by_key(|b| b.node_id);
+        Self {
+            brokers: Arc::new(brokers),
+            cluster_id: cluster_id.into(),
+        }
+    }
+
+    pub fn brokers(&self) -> &[BrokerInfo] {
+        &self.brokers
+    }
+
+    pub fn cluster_id(&self) -> &str {
+        &self.cluster_id
+    }
+
+    fn broker_by_node(&self, node_id: i32) -> Option<&BrokerInfo> {
+        self.brokers.iter().find(|b| b.node_id == node_id)
+    }
+
+    /// Balanced presented-leader for a partition: a stable hash of
+    /// `(topic, partition)` modulo the broker count. Even distribution across
+    /// brokers spreads client connections; reassignment only happens when the
+    /// membership changes.
+    pub fn leader_for(&self, topic: &str, partition: i32) -> Option<&BrokerInfo> {
+        if self.brokers.is_empty() {
+            return None;
+        }
+        let mut key = topic.as_bytes().to_vec();
+        key.extend_from_slice(&partition.to_be_bytes());
+        let idx = (fnv1a(&key) % self.brokers.len() as u64) as usize;
+        Some(&self.brokers[idx])
+    }
+
+    /// Balanced group-coordinator broker: a stable hash of the group id modulo
+    /// the broker count.
+    pub fn coordinator_for(&self, group_id: &str) -> Option<&BrokerInfo> {
+        if self.brokers.is_empty() {
+            return None;
+        }
+        let idx = (fnv1a(group_id.as_bytes()) % self.brokers.len() as u64) as usize;
+        Some(&self.brokers[idx])
+    }
+}
+
+/// Per-broker [`ClusterView`] over a shared [`ClusterMembership`]. Every broker
+/// in the cluster constructs one of these with its own `self_node_id`; all of
+/// them present the *same* topology and leader assignment.
+pub struct FjordMultiBrokerClusterView {
+    self_node_id: i32,
+    membership: ClusterMembership,
+}
+
+impl FjordMultiBrokerClusterView {
+    pub fn new(self_node_id: i32, membership: ClusterMembership) -> Self {
+        Self {
+            self_node_id,
+            membership,
+        }
+    }
+}
+
+impl ClusterView for FjordMultiBrokerClusterView {
+    fn self_broker(&self) -> BrokerInfo {
+        self.membership
+            .broker_by_node(self.self_node_id)
+            .cloned()
+            // A broker should always be in its own membership; fall back to the
+            // first known broker rather than panic if misconfigured.
+            .or_else(|| self.membership.brokers().first().cloned())
+            .expect("cluster membership must be non-empty")
+    }
+
+    fn brokers(&self) -> Vec<BrokerInfo> {
+        self.membership.brokers().to_vec()
+    }
+
+    fn cluster_id(&self) -> String {
+        self.membership.cluster_id().to_string()
+    }
+
+    fn partition_leader(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> std::result::Result<BrokerInfo, ClusterViewError> {
+        // Any broker can serve any partition; this only returns the balanced
+        // routing hint. It never errors for a non-negative partition because
+        // there is no leader/follower distinction to violate.
+        self.membership
+            .leader_for(topic, partition)
+            .cloned()
+            .ok_or_else(|| ClusterViewError::NotLeaderOrFollower {
+                topic: topic.to_string(),
+                partition,
+            })
+    }
+
+    fn find_coordinator(
+        &self,
+        group_id: &str,
+    ) -> std::result::Result<BrokerInfo, ClusterViewError> {
+        self.membership
+            .coordinator_for(group_id)
+            .cloned()
+            .ok_or_else(|| ClusterViewError::NotCoordinator {
+                group_id: group_id.to_string(),
+            })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // FjordGroupCoordinator
 // ---------------------------------------------------------------------------
 
@@ -817,5 +964,73 @@ impl GroupCoordinatorBackend for FjordGroupCoordinator {
 
     fn offset_store(&self) -> Arc<dyn OffsetStore> {
         self.offset_store.clone()
+    }
+}
+
+#[cfg(test)]
+mod cluster_tests {
+    use super::*;
+
+    fn membership(n: i32) -> ClusterMembership {
+        let brokers = (0..n)
+            .map(|i| BrokerInfo {
+                node_id: i,
+                host: format!("broker-{i}"),
+                port: 9092,
+            })
+            .collect();
+        ClusterMembership::new(brokers, "test-cluster")
+    }
+
+    /// Leader assignment is a pure function of membership: every broker's view
+    /// agrees on the leader for each partition, and it survives insertion order.
+    #[test]
+    fn leader_assignment_is_consistent_across_brokers() {
+        let m = membership(3);
+        let views: Vec<_> = (0..3)
+            .map(|id| FjordMultiBrokerClusterView::new(id, m.clone()))
+            .collect();
+        for p in 0..64 {
+            let leaders: Vec<i32> = views
+                .iter()
+                .map(|v| v.partition_leader("orders", p).unwrap().node_id)
+                .collect();
+            // All three brokers present the identical leader for this partition.
+            assert!(leaders.windows(2).all(|w| w[0] == w[1]), "disagreement at p{p}: {leaders:?}");
+        }
+    }
+
+    /// Leaders are spread across all brokers (load distribution), not pinned to
+    /// one. With 64 partitions over N brokers, every broker should own some.
+    #[test]
+    fn leaders_are_balanced_across_brokers() {
+        for n in [2, 3, 5] {
+            let m = membership(n);
+            let v = FjordMultiBrokerClusterView::new(0, m);
+            let mut counts = std::collections::HashMap::new();
+            for p in 0..64 {
+                let leader = v.partition_leader("orders", p).unwrap().node_id;
+                *counts.entry(leader).or_insert(0) += 1;
+            }
+            assert_eq!(counts.len(), n as usize, "every one of {n} brokers must own some partitions: {counts:?}");
+            // No broker should be wildly over-loaded (sanity, not exactness):
+            // each should be within 3x of an even share.
+            let even = 64.0 / n as f64;
+            for (&node, &c) in &counts {
+                assert!((c as f64) < even * 3.0, "broker {node} over-loaded: {c} of 64 (even≈{even:.1})");
+            }
+        }
+    }
+
+    /// self_broker reflects each broker's own identity, all over one topology.
+    #[test]
+    fn self_broker_is_per_node_but_topology_is_shared() {
+        let m = membership(3);
+        for id in 0..3 {
+            let v = FjordMultiBrokerClusterView::new(id, m.clone());
+            assert_eq!(v.self_broker().node_id, id);
+            assert_eq!(v.brokers().len(), 3);
+            assert_eq!(v.cluster_id(), "test-cluster");
+        }
     }
 }
