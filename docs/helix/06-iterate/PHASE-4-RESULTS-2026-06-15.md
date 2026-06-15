@@ -110,9 +110,24 @@ batching (worst case: one `commit_object` per record):
 The dial is the headline: **1 ms of batching collapses commit count ~100× and
 lifts throughput ~110×** — tail-latency *is* the cost lever (ADR-006). The
 honest caveat: **unbatched Postgres produce has a fat p99 (~212 ms)** while p50
-is 5 ms — the bimodal shape points at Postgres WAL fsync stalls
-(`synchronous_commit=on`, amplified by the container overlay fs), not a fjord
-design flaw, and it is exactly what batching/flush-buffering removes.
+is ~5 ms.
+
+Root-caused by elimination (not fsync, not client Nagle):
+- `synchronous_commit=off` moved p50 5 → 2.6 ms but left the ~212 ms p99 → **not
+  WAL fsync** (fsync is in the median, not the tail).
+- Client `socket.nagle.disable=true` did not move it → **not client↔broker**.
+- The **memory** coordinator shows *zero* tail (p99 0.17 ms) under the identical
+  client/broker → the tail is entirely in the **heimq→Postgres connection
+  path**. Each `commit_object` makes ~8–10 small round-trips to the PG container;
+  the reproducible ~200 ms (Linux delayed-ACK is ~40 ms, so not classic Nagle)
+  is most consistent with an **OrbStack docker-bridge / PG-connection artifact**
+  of this test setup, not a fjord design flaw.
+
+Production mitigations (independent of the artifact): (i) **server-side flush
+buffering** (TD-005) collapses many records into one `commit_object`, cutting
+both commit count and tail exposure ~100×; (ii) fewer round-trips per commit
+(pipelined/CTE SQL); (iii) a real low-latency Postgres (RDS) rather than docker
+on an overlay fs.
 
 Two follow-ups this surfaces: (i) measure per-record latency under a small
 server-side flush window (the "better-than-classic-Kafka latency" bar — classic

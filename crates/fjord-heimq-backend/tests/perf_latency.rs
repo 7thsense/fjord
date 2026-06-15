@@ -63,6 +63,7 @@ async fn produce_latencies(bootstrap: &str, topic: &str, n: usize) -> Vec<f64> {
         .set("linger.ms", "0")
         .set("batch.num.messages", "1")
         .set("max.in.flight.requests.per.connection", "1")
+        .set("socket.nagle.disable", "true")
         .set("message.timeout.ms", "30000")
         .create()
         .expect("producer");
