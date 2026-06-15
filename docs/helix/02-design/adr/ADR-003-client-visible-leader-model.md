@@ -12,7 +12,18 @@ ddx:
 
 ## Status
 
-Accepted (operator decision, 2026-06-12)
+Accepted (operator decision, 2026-06-12); amended by ADR-005 (2026-06-14).
+
+> **Amendment (superseded by ADR-008, 2026-06-15).** The current model is
+> **stateless brokers + a central coordinator** (ADR-008): brokers hold no durable
+> data and any broker serves any partition; the **coordinator** is the sequencing
+> authority (offsets assigned in the coordinator transaction, COORD-001), not a
+> per-partition broker leader. The Metadata "leader" fjord presents is a
+> **routing/cache-locality hint** for load balancing, and `NOT_LEADER_OR_FOLLOWER`
+> survives only as a routing convention (a broker may redirect a client to a
+> better-located peer). The intermediate ADR-005 "leaderless write / offsets at
+> metadata-commit" and ADR-007 "single-writer-per-shard owner" framings are both
+> superseded by the coordinator model.
 
 ## Context
 

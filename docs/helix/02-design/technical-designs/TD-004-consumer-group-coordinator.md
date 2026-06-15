@@ -11,6 +11,17 @@ ddx:
 
 # Technical Design: TD-004 Consumer Group Coordinator
 
+> **Superseded by TD-007 + ADR-008 (2026-06-15).** This TD placed group state in
+> an object-log internal topic (`__fjord_groups`) with the coordinator = owner of
+> that partition, rebuilt by replay. Under the central-coordinator model, group
+> and offset state are **rows in the coordinator** (default Postgres; COORD-001
+> `group_state`/`committed_offsets`), the coordinator for a group is the single
+> owner of the groups shard for `hash(group)` with monotonic generation enforced
+> by the store, and EOS offset commits flip pending→committed atomically with the
+> transaction (TD-008). Read **TD-007 §Consumer-group coordinator** and **COORD-001**
+> for the authoritative design. Retained for the classic group-protocol state
+> machine description, which is unchanged on the wire.
+
 ## Scope
 
 Design the group coordinator behind FindCoordinator, JoinGroup, SyncGroup,

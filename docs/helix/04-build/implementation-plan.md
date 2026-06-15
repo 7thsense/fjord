@@ -3,74 +3,96 @@ ddx:
   id: implementation-plan
   depends_on:
     - feature-registry
+    - adr-pluggable-central-coordinator
+    - coord-coordinator-store-contract
     - td-kafka-protocol-gateway
-    - td-metadata-routing-coordination
+    - td-multiplexed-write-path-and-sequencing
+    - td-fetch-read-path-and-cache
+    - td-metadata-plane-state-and-kafka-semantics
+    - td-transactions-and-exactly-once
     - td-object-log-data-plane
     - tp-kafka-compatibility-and-performance
     - tp-implementation-increments
+    - tp-verification-strategy-oracles-and-properties
 ---
 
 # Implementation Plan
 
 ## Scope
 
-Fjord depends on object-log for durable data-plane semantics, but not every
-Fjord task must wait. Protocol scaffolding, compatibility fixtures, and metadata
-design can begin while object-log hardens.
+fjord = stateless brokers + object storage (record data) + a pluggable
+self-hosted central coordinator (default Postgres; ADR-008, COORD-001). The plan
+builds on the heimq engine crates (`heimq-wire`/`heimq-broker` for frame IO and
+handler scaffolding) with fjord owning sequencing above object_log's
+`ObjectStore`. SPIKE-001 (now: coordinator commit latency/throughput per backend)
+is retired first, because the whole produce floor depends on it.
 
 ## Implementation Slices
 
-Slices are labeled M1-M6 and referenced by those labels across fjord docs.
+Slices are labeled M1-M7 and referenced by those labels across fjord docs. The
+milestone structure reflects the central-coordinator design (ADR-008); the
+earlier object-log-sequencer / emulated-leader milestones are superseded.
+
+### M0 (SPIKE-001): Coordinator latency/throughput spike — run first
+
+- Prototype `commit_object`/`end_txn` against the default Postgres backend (and
+  characterize etcd/Dragonfly); measure p50/p99/throughput vs the produce floor.
+- Gate (build/no-build-adjacent): Postgres clears the coordinator-latency budget;
+  if no self-hosted backend does, escalate per ADR-004/ADR-008.
 
 ### M1: Protocol Gateway Skeleton
 
-- Create Rust service crate.
-- Implement Kafka frame IO, header version selection, handler registry, and
-  ApiVersions.
-- Add Metadata skeleton with a static single-node topic registry, emitting
-  ADR-003 emulated-leader responses (one owner per partition).
-- Add Niflheim-informed connection reader/writer split.
+- Create the broker service crate on `heimq-wire`/`heimq-broker`.
+- Implement Kafka frame IO, header version selection, handler registry, ApiVersions.
+- Metadata skeleton presenting a routing/cache-locality leader hint (ADR-008);
+  any broker serves any partition.
 - Gate: unit tests plus `kcat -L` against local server.
 
-### M2: Shared Wire Extraction Decision
+### M2: CoordinatorStore + Postgres backend (foundational)
 
-- Compare Fjord skeleton with Niflheim's protocol module.
-- Extract a product-neutral `kafka-wire` crate only if the boundary is stable.
-- Gate: Fjord and an extraction spike can use the same frame/version/registry
-  code without object-log or Niflheim dependencies.
+- Implement the `CoordinatorStore` trait (COORD-001) and the **default Postgres
+  backend** with the reference schema (partition_state, object_index,
+  producer_state/seq, group_state, committed_offsets, txn_state, txn_partition,
+  aborted_ranges, leader_epoch_history, brokers); pre-insert partition_state rows
+  on create_topic (B2).
+- Implement `commit_object` with the mandated lock order (B3) and capability
+  gating; pass the COORD-001 conformance suite (O7).
+- Gate: conformance suite green on Postgres (linearizable commit_object, lease
+  fencing, durability-survives-restart).
 
-### M3: object-log Produce/Fetch
+### M3: Write/read path on object-log + coordinator
 
-- Integrate object-log as the durable append/read backend.
-- Implement Produce and Fetch for assigned partitions.
-- Map `acks` semantics explicitly.
-- Gate: Java client produce/fetch round trip with durable object-log commit.
+- Stateless broker produce path: buffer → multiplexed L0 PUT → `commit_object`
+  (TD-005); Fetch via the coordinator index + locality-aware cache (TD-006).
+- Map `acks` explicitly; idempotent-producer fencing (TD-007).
+- Gate: Java client produce/fetch round trip; durable ack = PUT + coordinator
+  commit; differential vs real Kafka (O1) on the produce/fetch surface.
 
-### M4: Metadata and Routing
+### M4: Consumer Groups and Offsets
 
-- Implement topic/partition metadata state behind the metadata-plane
-  interface (in-memory first; durable backend per ADR-004 after SPIKE-001
-  passes).
-- Implement ADR-003 owner routing and stale metadata behavior
-  (`NOT_LEADER_OR_FOLLOWER`, epoch persisted before announcement).
-- Until CreateTopics lands at L3, topics for M3-M5 work are created through a
-  bootstrap seam (declarative topic config applied at startup); the seam is
-  test/ops tooling, not Kafka API surface.
-- Gate: clients reroute or retry correctly after reassignment and node loss.
+- FindCoordinator/Join/Sync/Heartbeat/Leave/OffsetCommit/OffsetFetch via the
+  coordinator (TD-007); group = single owner of the groups shard for `hash(g)`.
+- Gate: Java consumer group commits offsets, restarts, and rebalances after a
+  broker dies (stateless — any broker serves).
 
-### M5: Consumer Groups and Offsets
+### M5: Transactions / Exactly-Once
 
-- Implement FindCoordinator, JoinGroup, SyncGroup, Heartbeat, LeaveGroup,
-  OffsetCommit, and OffsetFetch for the first compatibility level.
-- Gate: Java consumer group can commit offsets, restart, and rebalance after
-  node loss.
+- InitProducerId/AddPartitionsToTxn/AddOffsetsToTxn/TxnOffsetCommit/EndTxn;
+  `end_txn` = one coordinator transaction (TD-008); `read_committed` + LSO +
+  aborted-range filtering.
+- Gate: differential EOS + Jepsen transactional invariants (TP-003) vs Kafka.
 
-### M6: Operations and Performance
+### M6: Compaction, fetch cache, operations
 
-- Add metrics, config validation, runbooks, fault harness, and performance
-  profiles.
-- Gate: Kafka performance tools produce reproducible throughput/latency/cost
-  evidence for the declared profile.
+- L0→L1 compaction (must keep up with ingest, D9), locality-aware/per-AZ fetch
+  cache, orphan/tombstone GC, metrics, config validation, runbooks, fault harness.
+- Gate: compaction-keeps-up + GET/PUT-count invariance (D6/D7/D9) under sustained load.
+
+### M7: Performance and cost proof
+
+- OMB + kafka-perf per ADR-006 profile; cost accounting ($/GB, PUT/GET per MB,
+  zero inter-AZ).
+- Gate: meets the Phase-4 stop condition (TP-003) — parity + scoped perf + cost/ops.
 
 ## Issue Decomposition
 
@@ -97,9 +119,11 @@ Tracked work lives in `.ddx/beads.jsonl`:
   in-memory backends; M3 is the only milestone blocked.
 - **Shared-crate extraction proves premature at M2**: keep scaffolding in-repo
   and retry after M3; ADR-002 already gates extraction on a stable boundary.
-- **Metadata backend choice invalidated at M4**: TD-002 requires the in-memory
-  backend boundary to match the durable design, so a backend swap replaces a
-  module, not the routing design.
+- **Coordinator latency fails the spike (M0)**: this is the load-bearing risk.
+  Postgres is expected to pass; if no self-hosted backend meets the produce floor,
+  escalate per ADR-008/ADR-004 (different-product re-confirmation) rather than
+  patching forward. `CoordinatorStore` pluggability means a backend swap replaces
+  a module, not the design.
 - Each milestone gate is a test, not a claim; a failed gate rolls the milestone
   back to design (`evolve` the governing TD) instead of patching forward.
 
@@ -112,27 +136,28 @@ commands, client versions, object-log version, and backend modes.
 
 ## Dependency Notes
 
-- M1 can start immediately.
-- M2 can start after M1 has enough code to prove the shared API.
-- M3 waits for object-log conformance and object backend hardening. fjord
-  consumes object-log as a path/git dependency pinned to a recorded commit
-  SHA until object-log publishes versions; every TP evidence record cites the
-  pinned SHA.
-- M4 can start with an in-memory metadata backend but cannot implement or
-  claim durable metadata until SPIKE-001 passes the ADR-004 latency bars.
-- SPIKE-001 can run any time after object-log's local/S3-compatible stores
-  are usable; it should complete before M4's durable backend work begins.
-- M5 waits for M4 and is governed by TD-004.
-- The first build/no-build review (validation checklist, bead
-  `fjord-42864fe0`) completes before M3.
-- M6 runs throughout but only becomes a production gate after M3-M5.
+- **M0 (SPIKE-001) runs first** — the coordinator commit-latency result gates the
+  whole produce floor; complete it before committing to M2/M3.
+- M1 (gateway on heimq-wire) can start immediately, in parallel with M0.
+- M2 (CoordinatorStore + Postgres) is foundational for M3-M5; it can start once
+  M0 confirms the backend, in parallel with M1.
+- M3 waits for object-log conformance/backend hardening (path/git dependency
+  pinned to a recorded SHA; every TP evidence record cites the pinned SHA) AND
+  M2 (it calls `commit_object`).
+- M4 (groups) and M5 (EOS) build on M2/M3 and are governed by TD-007/TD-008.
+- M6 (compaction/cache/ops) runs alongside but its gates (D6/D7/D9) bind before
+  the production profile.
+- The first build/no-build review (validation checklist, bead `fjord-42864fe0`)
+  completes alongside M0/M1.
+- M7 (perf/cost proof) only becomes a gate after M3-M6.
 
 ## Exit Criteria
 
-- Every supported Kafka API/version appears in the compatibility matrix.
-- Produce/fetch data is durable only through object-log/object storage.
-- Local node disk is cache only.
-- Standard Kafka clients pass the declared compatibility level.
+- Every supported Kafka API/version appears in the API-001 capability matrix.
+- Record data is durable only through object-log/object storage; coordination
+  state is in the self-hosted coordinator; no broker-local durable state.
+- Standard Kafka clients pass the declared compatibility level (differential vs
+  real Kafka/Redpanda on the supported surface, TP-003).
 - Build/no-build review still shows meaningful differentiation from
-  WarpStream-class systems.
+  WarpStream-class systems (self-hosted, no hosted control plane, no consensus).
 

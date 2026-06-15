@@ -87,20 +87,22 @@ spec. It identifies the compatibility obligations that must map onto
   object-log plus metadata.
 - If object files can be committed or uploaded out of partition-offset order,
   an ordering authority must return the ordered file/batch list for Fetch.
-- Read isolation levels are unsupported until transaction state is designed.
+- Read isolation levels (`read_committed`/`read_uncommitted`) are **Accept**,
+  designed in TD-008 (LSO-bounded `read_committed`, aborted-data filtering).
 
 ### Metadata and Leadership
 
 Kafka clients expect partition leaders and refresh metadata on errors.
-**Decided (ADR-003)**: for L1/L2 fjord uses an emulated single leader per
-partition — Metadata assigns one owner node, non-owners return
-`NOT_LEADER_OR_FOLLOWER`, and clients reroute by refreshing metadata. Leader
-epoch changes are persisted before the new owner is announced.
-
-WarpStream-style any-node serving with reshaped, zone-aware Metadata
-responses remains the likely post-L2 routing optimization; the leaderless
-protocol extension is rejected. See ADR-003 for the full decision record and
-alternatives.
+**Decided (ADR-007, supersedes ADR-003's framing)**: the partition leader is the
+**single dataless owner of the partition's sequencer shard** — it is the real
+sequencing authority (not "presentation only"), but owns no durable data and
+moves with a metadata-only handoff. Metadata names that owner; non-owners return
+`NOT_LEADER_OR_FOLLOWER` and clients reroute. Leader epoch reflects **ownership
+changes** (TD-007), persisted before the new owner is announced; because object
+logs are immutable, Kafka-sense log truncation never occurs (a registered parity
+difference). Owner-failover produce-unavailability is a disclosed, bounded budget
+(ADR-007 N-B2). The earlier "emulated single leader / leaderless extension"
+framing (ADR-003) is superseded.
 
 ### Consumer Groups and Offsets
 
@@ -108,12 +110,12 @@ alternatives.
 - OffsetCommit/OffsetFetch must be durable and efficient.
 - Rebalance state must include group id, members, subscriptions, assignments,
   generation/member epoch, protocol type, and heartbeat/session timers.
-- **Decided (ADR-004, gated on SPIKE-001)**: committed offsets and group
-  metadata are stored as records in the internal object-log topic
-  `__fjord_groups`; the group coordinator is the owner of the group's
-  internal-topic partition (TD-004). A self-hosted Postgres mode exists only
-  as the spike-failure fallback and as an explicit exception to S3-only
-  durability; a hosted metadata service is never required.
+- **Decided (ADR-008, supersedes ADR-004 here)**: committed offsets and group
+  metadata live in the **central coordinator** (COORD-001 `group_state` /
+  `committed_offsets`, default self-hosted Postgres). Group coordination is a
+  coordinator transaction (monotonic generation enforced by the store, TD-007).
+  The object-log-internal-topic placement is an optional, non-default coordinator
+  backend; a *hosted* metadata service is never required.
 
 ## object-log Dependency Contract
 
@@ -149,14 +151,34 @@ implementation plan):
 fjord must not require object-log to know Kafka wire-protocol versions, group
 membership, ACLs, transactions, or admin APIs.
 
-## Known Unsupported Until Designed
+## Kafka Feature Capability Matrix (AR-2026-06-14b N-B5)
 
-- Transactions and exactly-once semantics.
-- `read_committed` isolation.
-- Compacted topics.
-- Full admin API coverage.
-- ACLs and quotas.
-- MirrorMaker/Connect certification.
-- Share groups and newer queue-like Kafka semantics.
+"Fully Kafka-capable" needs a falsifiable boundary, not a vague aspiration. Every
+Kafka feature is classified **Accept** (in the parity surface; client-observable
+behavior must match Kafka), **Defer** (planned, with a milestone; not yet on the
+parity surface; client gets a correct "not supported yet" error, never silent
+wrong behavior), or **Excluded** (structurally not provided by this architecture;
+declared with a client-visible error and an entry in TP-003's expected-divergence
+register). Anything Accept that diverges on the produce/fetch/commit surface is a
+parity *failure* (B-10), not a registrable divergence.
 
-These are target compatibility areas, not implied by the initial contract.
+| Feature | Class | Basis |
+|---------|-------|-------|
+| Produce/Fetch, idempotent producer, consumer groups, offsets, metadata, ApiVersions (flexible) | **Accept** | Core P0 (TD-005/006/007) |
+| **Transactions / EOS / `read_committed`** | **Accept** | **Full design now (TD-008), per 2026-06-15 decision** — was "deferred," now in the parity surface; gated by TD-008's test set |
+| ListOffsets, OffsetForLeaderEpoch | **Accept** | TD-007 (epoch reflects ownership, "no truncation" registered divergence) |
+| CreateTopics/DeleteTopics/Describe/Alter configs (admin minimum) | **Accept** (L3) | Enough for standard tools (P0 table) |
+| Compacted topics (log compaction) | **Defer** | Interacts with L0/L1 compaction (TD-005); milestone post-M5; client error until then |
+| ACLs / quotas / SASL-SCRAM-OAUTH enforcement | **Defer** | L3 security scope (PRD P2); plumbing-only at L1 |
+| MirrorMaker / Kafka Connect certification | **Defer** | Ecosystem cert milestone; inherits heimq FEAT-005 |
+| **Follower fetch (KIP-392)** | **Excluded** | Structural: there are no replicas — only a dataless movable owner (ADR-007). No follower to fetch from. Registered divergence. |
+| **Share groups / queues (KIP-932)** | **Excluded** (revisit) | Not in scope for v1; revisit as a post-parity feature. Registered. |
+| **Tiered-storage protocol surfacing (KIP-405)** | **Excluded** | fjord *is* object-storage-native; it does not present the KIP-405 broker-tiered-storage protocol. Behavior registered as a deliberate difference. |
+| Rack-aware / follower-read locality | **Excluded** (v1) | Tied to follower fetch; revisit with multi-AZ read routing (TD-006). |
+
+Defer/Excluded items must surface a **client-visible error** (e.g.
+`UNSUPPORTED_VERSION`/`UNSUPPORTED_FOR_MESSAGE_FORMAT`/feature-specific error),
+never silent wrong behavior. Excluded items have entries in TP-003's
+expected-divergence register with a rationale. This matrix is the frozen
+"supported surface" the B-10 parity gate measures against; changing a class
+requires an API-001 edit with review, not a test-config change.

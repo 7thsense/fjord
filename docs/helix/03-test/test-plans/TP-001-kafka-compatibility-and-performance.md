@@ -16,6 +16,14 @@ standard Kafka command-line tools, protocol-level fixtures, failure injection,
 and object-storage cost/performance accounting. Internal unit tests are
 necessary but not sufficient.
 
+> **See TP-003** for the verification *method* that backs this plan: external
+> oracles (real Kafka via KRaft/testcontainers + Redpanda), the differential
+> parity harness, property/model-based testing, the Jepsen invariant set,
+> Deterministic Simulation Testing for the diskless sequencing/commit/compaction
+> paths, and the continuous-cadence CI gates. TP-001 enumerates scenarios;
+> TP-003 makes each one checkable against a known-good reference and defines the
+> Phase-4 parity/performance/cost stop condition.
+
 This plan is design-time only. No implementation exists yet.
 
 ## Test Levels
@@ -125,10 +133,10 @@ Every performance claim must record:
 
 ## Known Gaps
 
-- No implementation exists yet.
-- The metadata backend direction is decided (ADR-004) but unconfirmed until
-  SPIKE-001 passes its latency bars.
-- Leader semantics are decided (ADR-003, emulated single leader for L1/L2).
+- Coordination state lives in the pluggable central coordinator (ADR-008 /
+  COORD-001, default Postgres); per-backend commit latency confirmed by SPIKE-001.
+- Leader semantics: stateless brokers + central coordinator; the Metadata leader
+  is a routing/cache-locality hint, not a write-correctness boundary (ADR-008).
 - The build/no-build differentiation review against WarpStream-class systems is
   not complete (gates defined in the build/no-build validation checklist;
   first review before M3).

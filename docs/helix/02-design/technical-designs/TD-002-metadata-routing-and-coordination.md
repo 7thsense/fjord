@@ -10,6 +10,17 @@ ddx:
 
 # Technical Design: TD-002 Metadata, Routing, and Coordination
 
+> **Superseded by ADR-008 / COORD-001 / TD-007 (2026-06-15).** This TD framed the
+> metadata/control plane as an open choice and recorded the interim decisions
+> (emulated single leader per ADR-003; object-log internal topics as the primary
+> durable metadata path per ADR-004). Both are superseded: metadata, sequencing,
+> routing, group/offset/producer state, and membership now live in the **pluggable
+> central coordinator** (default self-hosted Postgres; COORD-001), with **stateless
+> brokers** and the Metadata "leader" as a routing/cache-locality hint (ADR-008).
+> Read **COORD-001** for the coordinator interface and **TD-007** for the
+> Kafka-semantics state. This document is retained for the candidate-backend survey
+> and the historical reasoning only.
+
 ## Scope
 
 Kafka compatibility needs durable state beyond log bytes. This design frames

@@ -11,17 +11,20 @@ ddx:
 
 ## Summary
 
-fjord is a Kafka-compatible streaming system backed for durable log data by
-object storage through the embeddable `object-log` core. It should eventually
-support normal Kafka producer and consumer workflows while replacing stateful
-broker-local log storage with object-storage-backed segments, metadata, indexes,
-and caches designed for Kafka semantics.
+fjord is a Kafka-compatible streaming system that runs as **stateless brokers +
+object storage (for record data) + a pluggable, self-hosted central coordinator**
+(default Postgres). Record data is written through the embeddable `object-log`
+core into S3-compatible object storage; sequencing, metadata, consumer-group, and
+transaction state live in the coordinator. There is no hosted control plane, no
+replicated broker disk, and no bespoke consensus system to operate — two
+operational pieces: a broker pool and a metadata store the team already runs
+(ADR-008, COORD-001).
 
-The product must be honest about scope. The target is full Kafka producer and
-consumer functionality, but implementation must proceed through documented
-compatibility levels. Produce/fetch, metadata, offsets, and consumer groups are
-P0 design surfaces. Transactions, exactly-once semantics, compaction, ACLs, and
-the full admin surface may be phased, but they must not be hidden.
+The product is honest about scope, governed by compatibility levels. Produce,
+fetch, metadata, offsets, and consumer groups are P0. Transactions / exactly-once
+are now **designed** (TD-008: one coordinator transaction) and on the parity
+surface; compaction, ACLs, and the full admin surface remain phased and explicit
+via the API-001 capability matrix — never hidden.
 
 ## Problem and Goals
 
@@ -50,10 +53,11 @@ and fetch/cache design.
 
 ### Non-Goals
 
-- Implement code or a Kafka wire protocol in this documentation pass.
+- Require any hosted or SaaS dependency (including a hosted metadata/control
+  plane) to run the core product.
 - Build a Kafka Connect S3 sink or classic Kafka tiered-storage plugin.
 - Claim production Kafka compatibility before protocol, group, offset, failure,
-  and performance tests pass.
+  and performance tests pass against real Kafka/Redpanda (TP-003).
 - Store acknowledged log data durably on local broker disk.
 - Put pqueue or Niflheim domain semantics into fjord.
 - Pretend fjord is differentiated if its design collapses into a less mature
@@ -82,20 +86,19 @@ and fetch/cache design.
 
 ## Critical Differentiation and Build/No-Build Rationale
 
-fjord is deliberately entering a space with credible existing systems. The
-closest is WarpStream: stateless agents speak the Kafka protocol, durable data
-is stored in object storage, and a metadata/control-plane service makes Kafka's
-stateful protocol expectations work over stateless data-plane nodes.
-
-fjord's provisional build rationale is narrower:
+fjord enters a space with credible existing systems. The closest are WarpStream
+(stateless agents over object storage with a **hosted** metadata control plane)
+and Redpanda Cloud Topics (object storage with **per-partition Raft**). fjord is
+"self-hosted WarpStream without a consensus system": stateless brokers + object
+storage + a self-hosted coordinator the operator already runs.
 
 | Differentiator | fjord Direction | Build Gate |
 |----------------|-----------------|------------|
-| Open/self-hostable | The whole system should run from source in a user's account | No required hosted vendor metadata service |
-| S3/object-storage durability | Durable log data and, if feasible, durable metadata state use S3-compatible object storage | Any non-S3 durable metadata dependency must be explicitly justified |
+| Open/self-hostable, no hosted control plane | The whole system runs from source in the user's account; the coordinator is self-hosted (default Postgres) | No required hosted/SaaS metadata service (vs WarpStream) |
+| No bespoke consensus system | Coordination reuses a store the operator already runs, not an embedded Raft | No custom consensus cluster to operate (vs Redpanda) |
+| Object-storage data durability | Durable record data uses S3-compatible object storage; coordination state lives in the pluggable coordinator | Record data is object-storage-exclusive; no replicated broker disk |
 | object-log embeddability | Core log mechanics are reusable by pqueue and Niflheim without fjord | fjord must not fork or duplicate object-log segment/manifest/replay logic |
-| Simpler initial envelope | Accept higher latency and smaller API surface before full compatibility | Compatibility levels and unsupported APIs remain explicit |
-| pqueue/Niflheim alignment | fjord validates the same log contract those systems may use directly | Requirements stay product-neutral and Kafka-shaped |
+| Cost + operational simplicity | Win on $/GB and ops (no inter-AZ replication, stateless brokers); latency competitive but not a WarpStream-parity claim | Cost/ops parity-or-better vs WarpStream-class; latency better than classic Kafka |
 
 If fjord cannot satisfy these gates, the strategic recommendation should change
 from "build fjord" to "use or contribute to WarpStream/AutoMQ/Bufstream/Kafka
@@ -157,11 +160,11 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 
 ### Subsystem: Metadata, Leadership, and Coordination
 
-- **FR-19** — fjord MUST decide whether client-visible partition leadership is emulated over leaderless internals, assigned to nodes, or mapped to a metadata service.
-- **FR-20** — Leader epoch, partition epoch, producer snapshots, and object-log manifest state MUST be coherent after node failure and reassignment.
-- **FR-21** — fjord MUST not introduce hidden durable local state; node-local files may only be cache.
-- **FR-22** — fjord MUST define a metadata/control-plane backend boundary for topics, partitions, epochs, groups, offsets, producer state, ACLs, and service membership.
-- **FR-32** — fjord MUST decide whether durable metadata is stored in object storage, in object-log internal topics, or in a separate self-hosted metadata store; a hosted metadata service MUST NOT be required for the core product.
+- **FR-19** — fjord MUST present a client-visible partition leader in Metadata for routing/cache-locality while keeping offset sequencing in the central coordinator; brokers are stateless and any broker may serve any partition (ADR-008).
+- **FR-20** — Leader epoch, partition epoch, producer state, and the object→offset index MUST be coherent after node failure and reassignment (coordinator-owned; TD-007).
+- **FR-21** — fjord MUST not introduce hidden durable local state on brokers; node-local files may only be cache.
+- **FR-22** — fjord MUST keep topics, partitions, epochs, groups, offsets, producer state, and broker membership in the pluggable central coordinator behind the `CoordinatorStore` contract (COORD-001).
+- **FR-32** — Durable coordination state MUST live in a self-hosted coordinator backend (default Postgres; etcd/Dragonfly behind COORD-001; object-log internal topics optional); a hosted/SaaS metadata service MUST NOT be required for the core product.
 
 ### Subsystem: Object Storage and object-log
 
@@ -182,7 +185,7 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | fjord collapses into a less mature WarpStream clone | Project produces no differentiated value | Build/no-build gate (FEAT-007) reviewed at every milestone; stop condition recorded in ADR-001 |
-| S3-only durable metadata proves impractical for groups/offsets/epochs | Core differentiation weakens; coordination latency unacceptable | TD-002 keeps object-log internal topics preferred with optional self-hosted Postgres mode as an explicit, justified exception |
+| Coordinator is a throughput/availability bottleneck or SPOF-class dependency | Produce stalls; cluster availability floor becomes the coordinator's HA | Default Postgres is ms-class with well-understood HA; `CoordinatorStore` declares consistency/durability capability gates (COORD-001); SPIKE-001 characterizes per-backend latency/throughput before a backend is supported |
 | Object-storage commit latency breaks real producer workloads | Product fit fails for latency-sensitive streams | Publish latency/cost profiles (FR-27); target latency-tolerant workloads first; batching thresholds configurable |
 | Consumer group coordination is a larger distributed-systems surface than planned | L2 slips or ships incorrect rebalance semantics | Group coordinator design is a named follow-up ADR before M5; standard-client rebalance tests gate L2 |
 | object-log hardening (S3 adapter, retention, conformance) slips | fjord M3+ blocked | Implementation plan orders protocol/metadata work first; object-log milestones tracked in its own repo |
@@ -191,25 +194,29 @@ Diskless Topics and keep object-log as an embeddable non-broker library."
 
 | Question | Resolution | Recorded In |
 |----------|------------|-------------|
-| Leader model / Metadata API emulation | Emulated single leader per partition for L1/L2; non-owners return `NOT_LEADER_OR_FOLLOWER`; any-node routing deferred post-L2 | ADR-003 |
-| Synthetic per-AZ leaders | Deferred with the any-node routing optimization | ADR-003 |
-| Metadata store / S3-only metadata durability | object-log internal topics are the primary durable metadata path, confirmed by SPIKE-001 latency bars; self-hosted Postgres only as spike-failure fallback; hosted service never | ADR-004, SPIKE-001 |
-| object-log as metadata authority | Manifest stays the ordering authority; coordination state lives in internal object-log topics, not the manifest | ADR-004 |
-| Consumer group authority | Coordinator = owner of the group's `__fjord_groups` partition; classic group protocol for L2 | TD-004 |
-| Offset storage | Committed offsets are records in `__fjord_groups`, durable at `AckMode::All` before the commit response | TD-004, ADR-004 |
+| Sequencing / metadata authority | A pluggable **central coordinator** (default self-hosted Postgres; etcd/Dragonfly behind COORD-001; object-log internal topics optional) is the per-partition serialization point and home of metadata, sequencing, group, and txn state | ADR-008, COORD-001 |
+| Broker model / leadership | **Stateless brokers**; any broker serves any partition by calling the coordinator. The Metadata "leader" is a routing/cache-locality hint, not a write-correctness boundary; `NOT_LEADER_OR_FOLLOWER` is a routing convention | ADR-008, TD-005 |
+| Durable metadata placement / hosted-service gate | In the coordinator (self-hosted). "Single durable substrate" is given up; "**no hosted/SaaS control plane**" still binding | ADR-008 (supersedes ADR-004) |
+| object-log role | Object-storage IO for record data (L0/L1 segments); offset assignment is owned by fjord above object-log's `ObjectStore` | ADR-005, TD-005 |
+| Consumer group authority | Coordinator = single owner of the groups shard for `hash(group)`; monotonic generation enforced by the store | TD-007 |
+| Offset storage | `committed_offsets` rows in the coordinator, durable in the commit transaction; EOS offsets flip pending→committed atomically with the txn | TD-007, TD-008 |
+| Transactions / exactly-once | **Designed**: `end_txn` is one coordinator transaction (decision + offset-flip + LSO advance sync; marker materialization async); on the parity surface | TD-008, COORD-001 |
+| Idempotent producers | Epoch fencing + last-5 `(seq→offset)` map under the partition-state row lock in `commit_object` | TD-007, COORD-001 |
 | acks=1 semantics | Upgraded to durable commit by default, disclosed in latency/cost profiles; reject available per profile | API-001, TD-003 |
 | Protocol version floor | First flexible version (KIP-482) per API; legacy versions rejected except ApiVersions request parsing | API-001, TD-001 |
 
 ## Open Design Questions
 
+(Fetch index/cache shape → resolved in TD-006; idempotent producers → TD-007;
+transactions/read_committed → TD-008. Remaining genuinely-open items:)
+
 | Question | Why It Matters | Blocks |
 |----------|----------------|--------|
-| Fetch index/cache shape | Object reads can dominate latency and cost | Consumer performance (pre-M3; ADR-001 follow-up #3) |
-| Small produce latency/cost | Single-message or tiny-batch producers may be expensive or slow on object storage | Product fit |
-| Idempotent producers | Duplicate suppression requires producer state and sequence tracking | Safe retries (ADR-001 follow-up #5) |
-| Transactions/read_committed | Exactly-once compatibility requires transaction markers and offset transactions | L4 compatibility |
-| Compaction and retention | Kafka topics often rely on delete/compact policies; internal metadata topics need compaction early (ADR-004) | Operational compatibility (ADR-001 follow-up #6) |
-| Security model | Kafka users expect TLS/SASL/ACLs; L1 ships plumbing only (API-001 principle 6) | Production readiness (ADR-001 follow-up #7) |
+| Coordinator latency/throughput per backend | The coordinator commit is on the produce critical path; Postgres expected to pass, etcd/Dragonfly need characterization | Produce-floor confidence (SPIKE-001, re-pointed to COORD-001 backends) |
+| Small produce latency/cost | Single-message or tiny-batch producers may be expensive or slow on object storage even with a fast coordinator | Product fit |
+| Coordinator HA / sizing guidance | The coordinator is now the availability floor and a required component | Operational readiness (per-backend HA: PG replication, etcd quorum, Dragonfly persistence) |
+| Compaction and retention | Kafka topics rely on delete/compact policies; L0→L1 compaction must keep up with ingest | Operational compatibility (TD-005 compaction; D9 invariant) |
+| Security model | Kafka users expect TLS/SASL/ACLs; L1 ships plumbing only (API-001 principle 6) | Production readiness (API-001 capability matrix: Defer) |
 
 ## Acceptance Test Sketches
 

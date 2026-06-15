@@ -25,8 +25,9 @@ Project concerns declare active cross-cutting context for downstream work.
 | Slot | Filler | Source |
 |------|--------|--------|
 | language-runtime | Rust (cargo workspace; `kafka-protocol`, `tokio`, `bytes`) | Operator decision — matches object-log and niflheim; recorded from implementation plan M1 |
-| datastore | S3-compatible object storage via `object-log` | By design (ADR-001); durable metadata path per ADR-004 |
-| deploy-target | Self-hosted (binary + object store; no hosted control plane) | By design (PRD FR-32) |
+| datastore (record data) | S3-compatible object storage via `object-log` | By design (ADR-001, ADR-005) |
+| coordinator (metadata/sequencing) | Pluggable, self-hosted; default Postgres (etcd/Dragonfly behind COORD-001; object-log internal topics optional) | By design (ADR-008, COORD-001); operator directive 2026-06-15 |
+| deploy-target | Self-hosted: stateless broker pool + object store + a coordinator the operator already runs; no hosted control plane | By design (PRD FR-32, ADR-008) |
 | e2e-framework | Standard Kafka clients and tools (Java client, kcat/librdkafka, kafka-go, Kafka perf CLIs) | By design (TP-001) — Kafka compatibility is the e2e harness |
 
 Web-app slots (frontend-framework, auth-provider) do not apply: fjord is a

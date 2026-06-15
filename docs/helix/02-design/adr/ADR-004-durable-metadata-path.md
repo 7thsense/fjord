@@ -12,8 +12,23 @@ ddx:
 
 ## Status
 
-Accepted as direction (operator decision, 2026-06-12); confirmation gated on
-SPIKE-001 results before the M4 backend implementation.
+**Superseded as the primary path by ADR-008 (2026-06-15).** The original
+direction below — object-log internal topics as the *default* durable metadata/
+sequencing substrate — is replaced by a **pluggable central coordinator (default
+self-hosted Postgres)**, because a fast transactional store removes the SPIKE-001
+latency gamble and provides the atomic multi-key commit that object storage
+cannot (resolving the EOS atomicity gap). The object-log-internal-topic path is
+**retained as an optional, non-default backend** behind the `CoordinatorStore`
+contract (COORD-001), carrying the latency/atomicity caveats this ADR and
+SPIKE-001 describe. The "no *hosted* control plane" principle (item 4 below) is
+**unchanged and still binding**; only "single durable substrate" is given up. Read
+this ADR for the rejected-alternatives analysis (hosted service, etcd/ZooKeeper)
+and the object-log-backend caveats; read **ADR-008 / COORD-001** for the
+authoritative coordinator design.
+
+Original status (historical): Accepted as direction (operator decision,
+2026-06-12); confirmation gated on SPIKE-001 results before the M4 backend
+implementation.
 
 ## Context
 
@@ -44,6 +59,23 @@ not exist yet.
    metadata-plane interface, is implemented **only if** SPIKE-001 fails the
    bars. It is an explicit, documented exception to S3-only durability and is
    never a hosted-service requirement.
+
+   > **Fallback decision tree + deadline (AR-2026-06-14b warning).** SPIKE-001
+   > (now centered on the per-produce **sequencing-commit** workload, ADR-007)
+   > must complete and be evaluated **before any Phase-3 produce-path code** —
+   > hard deadline, not "before M4." Outcomes:
+   > - **Sequencing-commit p99 within budget** → object-log sequencer confirmed;
+   >   proceed. No claim change.
+   > - **Fails, but amortizes with fatter shard objects** → raise multiplex/flush
+   >   size, re-measure. No claim change.
+   > - **Fails irrecoverably on object-log** → adopt the self-hosted Postgres
+   >   *sequencer*. **This is a different product:** it adds a relational control
+   >   plane alongside object storage, so the following product-vision claims are
+   >   **retracted before proceeding** — "single durable substrate," "one
+   >   operational dependency," and part of the "simpler than Kafka" framing. The
+   >   no-*hosted*-service and open/self-hostable claims survive. Proceeding then
+   >   requires an explicit operator re-confirmation, not a silent backend swap.
+   > - **No self-hosted path meets the produce floor** → build/no-build review.
 4. **Never:** a required hosted metadata/control-plane service. If both the
    primary path and the self-hosted fallback prove unworkable, that is a
    build/no-build signal, not a license to add a hosted dependency.

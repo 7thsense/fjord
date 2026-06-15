@@ -17,6 +17,18 @@ nodes authoritative for durable log data.
 
 ## Produce Mapping
 
+> **Superseded for the write path by TD-005 + ADR-008 (2026-06-15).** The
+> per-partition append sequence below described the emulated-single-leader model
+> where one owner node appends to one partition's log and assigns offsets from a
+> local counter. The current model is **stateless brokers + a central
+> coordinator**: a broker buffers many partitions → one L0 object → PUTs it →
+> calls the **coordinator** to assign offsets in one transaction (COORD-001). See
+> **TD-005** for the multiplexed write path and **ADR-008 / COORD-001** for the
+> authoritative sequencing/commit model. The `acks` mapping and the
+> never-silently-weaker rule below remain in force. The fetch mapping, batching,
+> and corruption-handling sections of this TD remain current (refined by TD-005
+> §Fetch and §Compaction).
+
 1. Decode Produce request and preserve Kafka record batch bytes.
 2. Resolve topic, partition, owner epoch, and append timestamp policy.
 3. Convert Kafka records to object-log records while carrying key, value,

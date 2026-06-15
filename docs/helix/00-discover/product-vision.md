@@ -9,110 +9,99 @@ ddx:
 
 ## Mission Statement
 
-fjord gives teams a Kafka-compatible streaming system whose durable log data
-lives in object storage, preserving the Kafka client experience while reducing
-broker state, replicated disk, and operational burden.
+fjord gives teams the Kafka API with object-storage economics: a Kafka-compatible
+streaming system whose durable log lives in object storage and runs as stateless
+compute, entirely inside the team's own infrastructure.
 
 ## Positioning
 
-For teams that rely on Kafka APIs but do not want to operate stateful broker
-storage, fjord is a Kafka-compatible service backed by `object-log` and
-S3-compatible object storage. Unlike a Kafka-to-S3 sink or classic tiered
-storage, fjord treats object storage as the primary durable log substrate.
-Unlike WarpStream, fjord is only worth building if it can be open/self-hostable,
-avoid a required hosted metadata service, and make the `object-log` core useful
-outside fjord itself.
+For platform teams running Kafka in the cloud whose bill and operational load are
+dominated by inter-AZ replication and provisioned broker disks, fjord is a
+Kafka-compatible streaming system that keeps the durable log in object storage and
+runs brokers as stateless, interchangeable compute. Unlike WarpStream, fjord runs
+end-to-end in the team's own account with no hosted control plane; unlike
+self-managed Kafka or Redpanda, it needs no replicated broker disks and no
+consensus cluster to operate.
 
 ## Vision
 
-Kafka-compatible streaming should be able to run like stateless compute over
-durable shared storage. fjord succeeds when standard Kafka producers, consumers,
-and tools can use an object-storage-backed cluster for workloads that value
-operational simplicity and cost efficiency over the lowest possible commit
-latency.
+Kafka-compatible streaming runs like stateless compute over shared storage. Teams
+stop paying to replicate every byte across availability zones and stop sizing and
+rebalancing stateful broker disks. Brokers become cattle: added, removed, or
+replaced with no data to move and no rebalance to wait for. The durable record of
+truth is object storage the team already trusts; the moving parts shrink to a
+pool of identical brokers and one metadata store the team already runs. Standard
+Kafka clients and tools keep working unchanged, including transactions and
+exactly-once. Teams trade the lowest possible commit latency for a dramatically
+lower cost and operational footprint — and choose that trade knowingly.
 
-**North Star**: fjord becomes the broker-compatible service layer that proves
-`object-log` can support Kafka producer and consumer semantics over durable
-object storage.
+**North Star**: a team can run a Kafka-compatible cluster end-to-end in their own
+account at a fraction of self-managed Kafka's cost, scaling brokers like stateless
+web servers, with standard clients unaware they left Kafka.
 
 ## User Experience
 
-An operator starts a small pool of fjord nodes behind a load balancer, points
-them at an object store plus a metadata/control-plane backend, and connects
-standard Kafka clients. Producers write batches to topics, consumers fetch by
-partition and commit offsets, and the operator scales nodes without moving
-durable log data between disks.
+An operator starts a pool of identical fjord brokers behind a load balancer and
+points them at an object-storage bucket plus a metadata store they already
+operate. They connect standard Kafka producers and consumers with only the
+bootstrap address changed. Producers write records and get durable acknowledgements;
+consumers fetch by partition, join groups, and commit offsets exactly as against
+Kafka; transactional producers get exactly-once. When traffic grows the operator
+adds brokers and they immediately share load; when a broker dies, clients reconnect
+to another and keep going — there is no partition data to move and no rebalance to
+sit through. The operator watches cost track object-storage usage, not replicated
+disk and cross-AZ traffic.
 
 ## Target Market
 
-| User | Need | Why fjord |
-|------|------|-----------|
-| Infrastructure team | Kafka-compatible ingestion with fewer stateful broker operations | Stateless-ish service nodes and object-storage durability reduce disk and rebalance burden |
-| Cost-sensitive streaming user | Lower durable storage and replication cost | Object storage holds the log; batching amortizes write cost |
-| pqueue / Niflheim operator | Same log semantics can run on object storage or Kafka-like service | fjord becomes a third consumer that pressure-tests `object-log` compatibility |
-| Compatibility tester | Standard Kafka client/tool validation | Kafka-facing service surface makes semantics testable with existing tooling |
+| Attribute | Description |
+|-----------|-------------|
+| Who | Platform/infrastructure teams running multi-GB/s Kafka in the cloud, and teams that want Kafka semantics fully self-hosted with no SaaS dependency |
+| Pain | Inter-AZ replication traffic and provisioned broker disks dominate the bill; stateful brokers make scaling and recovery slow and operationally heavy |
+| Current Solution | Self-managed Apache Kafka or Redpanda; or WarpStream's hosted control plane |
+| Why They Switch | Object-storage economics cut cost sharply, stateless brokers cut operational load, and self-hosting avoids handing the control plane to a vendor |
 
 ## Key Value Propositions
 
-- Kafka-compatible APIs without operating stateful broker storage: standard
-  producers, consumers, and tools keep working while durable log data lives in
-  S3-compatible object storage.
-- Lower storage and replication cost: object storage holds the log; batching
-  amortizes write cost; nodes scale without moving partition data.
-- Open and self-hostable: the whole system runs from source in the user's
-  account with no required hosted metadata/control-plane service.
-- Reusable `object-log` core: the same embeddable durable log contract serves
-  pqueue, Niflheim, and fjord, so fjord pressure-tests a shared asset instead
-  of creating a private fork of log mechanics.
-
-## Key Tradeoff
-
-fjord is not trying to beat local-disk Kafka at small-write latency. It is
-trying to make the cost and operations profile of object storage available
-behind Kafka-compatible APIs. The product must make that latency/cost tradeoff
-visible and configurable rather than hiding it.
-
-## Critical Differentiation
-
-fjord overlaps heavily with WarpStream. That is a strategic risk, not a detail
-to gloss over. fjord should proceed only if it makes different choices:
-
-- open/self-hostable system design,
-- no mandatory hosted control plane,
-- durable state in S3-compatible object storage wherever Kafka semantics allow,
-- `object-log` as a reusable embedded core for pqueue, Niflheim, and fjord,
-- a simpler initial operating envelope that accepts higher latency and narrower
-  feature coverage before expanding compatibility.
-
-If those choices prove incompatible with credible Kafka behavior, the right
-answer may be to stop and use existing systems rather than clone them.
+| Value Proposition | Customer Benefit |
+|-------------------|------------------|
+| Log in object storage | Pay object-storage prices and eliminate inter-AZ replication traffic — the dominant line item in a cloud Kafka bill |
+| Stateless brokers | Scale, replace, and recover brokers with zero data movement and no rebalance wait |
+| Fully self-hosted | Run the entire system, control plane included, in your own account — no hosted dependency to trust or pay |
+| Standard Kafka compatibility | Keep existing clients, tools, consumer groups, and exactly-once semantics; adoption is a bootstrap-address change |
 
 ## Success Definition
 
 | Metric | Target |
 |--------|--------|
-| Client compatibility | Standard Kafka producer and consumer clients can produce, fetch, and commit offsets for the supported protocol subset |
-| Durable log authority | Acknowledged records survive node loss because durable data is in object storage, not local broker disk |
-| Operational simplicity | fjord nodes can be replaced or scaled without partition data copying |
-| Cost discipline | Production profiles batch records into object-log segments and reject tiny-object write patterns |
-| Requirements coverage | Leader/follower, fetch, consumer groups, offsets, metadata, idempotent producers, and transactions are explicitly scoped before implementation |
+| Cost reduction | ≥ 50% lower $/GB-month at equivalent durability vs self-managed Kafka, by TCO comparison on matched workloads |
+| Client compatibility | Standard clients (Java, librdkafka, franz-go) and CLI tools pass the supported-surface differential vs Apache Kafka with zero unexplained diffs |
+| Operational simplicity | A broker is added or replaced with zero partition-data movement and no client-visible outage beyond normal metadata refresh |
+| Self-hostable | Runs end-to-end in the operator's own account with no required external or SaaS service |
 
 ## Why Now
 
-- The Kafka ecosystem itself is validating object-storage-first active logs:
-  KIP-1150 (Diskless Topics) moves durable topic data into shared object
-  storage inside Apache Kafka.
-- WarpStream, AutoMQ, and Bufstream prove the architecture is commercially
-  credible, but none of them combines open/self-hostable operation, no
-  required hosted control plane, and an embeddable reusable log core.
-- `object-log` now exists with a normative core contract (CONTRACT-001) and
-  working memory/local object-store backends, so a Kafka-facing consumer can
-  pressure-test it before its S3 adapter and retention layers harden.
-- pqueue and Niflheim already need the same durable log semantics, so the
-  shared-core bet has immediate internal consumers.
+Object-storage-first streaming has gone from idea to validated: Apache Kafka's
+Diskless Topics (KIP-1150), WarpStream, and Redpanda Cloud Topics all move the
+durable log into object storage. But each either runs a hosted control plane or
+embeds a consensus cluster. Two changes make a fully self-hosted, consensus-free
+alternative viable now: object stores have added the conditional-write primitives
+needed for a durable log, and commodity self-hosted datastores are fast and cheap
+enough to serve as the coordination plane. The opening is a diskless Kafka a team
+can run entirely on infrastructure it already operates.
 
-## Non-Vision
+## Review Checklist
 
-fjord is not a Kafka Connect sink, not a lakehouse table writer, and not an
-object-log replacement. object-log owns the embeddable durable log contract;
-fjord owns Kafka-compatible service behavior on top of it.
+Use this checklist when reviewing a product vision artifact:
+
+- [ ] Mission statement is specific — names the user, the problem, and the approach
+- [ ] Positioning statement differentiates from the current alternative
+- [ ] Vision describes a desired end state, not a feature list
+- [ ] North star is a single measurable sentence
+- [ ] User experience section describes a concrete scenario, not abstract benefits
+- [ ] Target market identifies specific pain points and switching triggers
+- [ ] Value propositions map to customer benefits, not internal capabilities
+- [ ] Success metrics are measurable and time-bound
+- [ ] Why Now section names a specific change, not a vague opportunity
+- [ ] Business case details, competitor matrices, requirements, and technical choices are left to their own artifacts
+- [ ] No implementation details (technology choices, architecture) — those belong in design
