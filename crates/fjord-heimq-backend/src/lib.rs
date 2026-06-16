@@ -11,17 +11,20 @@
 //! the serving surface.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Weak};
+use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use fjord_coordinator::{BatchMeta, CommitOutcome, CoordinatorError, CoordinatorStore};
 use fjord_log::BlobStore;
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
-    AtomicAppendScope, BackendCapabilities, CommittedOffset, Durability, FetchWait, LogBackend,
-    OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode,
+    AppendFuture, AtomicAppendScope, BackendCapabilities, CommittedOffset, Durability, FetchWait,
+    LogBackend, OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode,
     TopicConfig, TopicLog,
 };
 use parking_lot::{Condvar, Mutex};
@@ -56,7 +59,65 @@ impl Default for FlushConfig {
 struct Pending {
     meta: BatchMeta,
     bytes: Vec<u8>,
-    resp: SyncSender<Result<(i64, i64)>>,
+    resp: PendingResponse,
+}
+
+enum PendingResponse {
+    Blocking(SyncSender<Result<(i64, i64)>>),
+    Async(Arc<AsyncAppendState>),
+}
+
+impl PendingResponse {
+    fn complete(self, result: Result<(i64, i64)>) {
+        match self {
+            PendingResponse::Blocking(tx) => {
+                let _ = tx.send(result);
+            }
+            PendingResponse::Async(state) => state.complete(result),
+        }
+    }
+}
+
+#[derive(Default)]
+struct AsyncAppendState {
+    inner: Mutex<AsyncAppendInner>,
+}
+
+#[derive(Default)]
+struct AsyncAppendInner {
+    result: Option<Result<(i64, i64)>>,
+    waker: Option<Waker>,
+}
+
+impl AsyncAppendState {
+    fn complete(&self, result: Result<(i64, i64)>) {
+        let waker = {
+            let mut inner = self.inner.lock();
+            inner.result = Some(result);
+            inner.waker.take()
+        };
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
+}
+
+struct AsyncAppendFuture {
+    state: Arc<AsyncAppendState>,
+}
+
+impl Future for AsyncAppendFuture {
+    type Output = Result<(i64, i64)>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut inner = self.state.inner.lock();
+        if let Some(result) = inner.result.take() {
+            Poll::Ready(result)
+        } else {
+            inner.waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
 }
 
 #[derive(Default)]
@@ -78,23 +139,30 @@ struct Flusher {
 }
 
 impl Flusher {
-    /// Enqueue a batch and block until the flusher assigns its offset.
-    fn append(&self, meta: BatchMeta, bytes: Vec<u8>) -> Result<(i64, i64)> {
-        let (tx, rx) = sync_channel(1);
+    fn enqueue(&self, meta: BatchMeta, bytes: Vec<u8>, resp: PendingResponse) {
         {
             let mut st = self.state.lock();
             if st.queue.is_empty() {
                 st.oldest = Some(Instant::now());
             }
-            st.queue.push(Pending {
-                meta,
-                bytes,
-                resp: tx,
-            });
+            st.queue.push(Pending { meta, bytes, resp });
         }
         self.cv.notify_one();
+    }
+
+    /// Enqueue a batch and block until the flusher assigns its offset.
+    fn append(&self, meta: BatchMeta, bytes: Vec<u8>) -> Result<(i64, i64)> {
+        let (tx, rx) = sync_channel(1);
+        self.enqueue(meta, bytes, PendingResponse::Blocking(tx));
         rx.recv()
             .unwrap_or_else(|_| Err(HeimqError::Protocol("flusher stopped".into())))
+    }
+
+    /// Enqueue a batch and return a future resolved by the flusher thread.
+    fn append_async(&self, meta: BatchMeta, bytes: Vec<u8>) -> AppendFuture<'static> {
+        let state = Arc::new(AsyncAppendState::default());
+        self.enqueue(meta, bytes, PendingResponse::Async(Arc::clone(&state)));
+        Box::pin(AsyncAppendFuture { state })
     }
 
     /// One flush iteration: either flush a due batch, or wait for one.
@@ -146,10 +214,10 @@ impl Flusher {
         let object_id = format!("seg/{n:020}");
 
         if let Err(e) = self.blob.put(&object_id, object) {
+            let msg = e.to_string();
             for p in batch {
-                let _ = p
-                    .resp
-                    .send(Err(HeimqError::Protocol(format!("blob put: {e}"))));
+                p.resp
+                    .complete(Err(HeimqError::Protocol(format!("blob put: {msg}"))));
             }
             return;
         }
@@ -160,7 +228,7 @@ impl Flusher {
                         CommitOutcome::Assigned { base_offset, .. } => base_offset,
                         CommitOutcome::Duplicate { base_offset } => base_offset,
                     };
-                    let _ = p.resp.send(Ok((base, p.meta.record_count as i64)));
+                    p.resp.complete(Ok((base, p.meta.record_count as i64)));
                 }
             }
             Err(e) => {
@@ -168,7 +236,7 @@ impl Flusher {
                 // surface the error to every waiter; clients retry safely.
                 let msg = e.to_string();
                 for p in batch {
-                    let _ = p.resp.send(Err(HeimqError::Protocol(msg.clone())));
+                    p.resp.complete(Err(HeimqError::Protocol(msg.clone())));
                 }
             }
         }
@@ -196,20 +264,17 @@ impl PartitionLog for CoordinatorPartitionLog {
     }
 
     fn append(&self, view: &RecordBatchView<'_>, raw_bytes: Option<&[u8]>) -> Result<(i64, i64)> {
-        let bytes = raw_bytes.unwrap_or_else(|| view.raw());
-        // Enqueue into the shared flush buffer; byte_start/byte_len are filled in
-        // when the batch is multiplexed into an object at flush time.
-        let meta = BatchMeta {
-            topic: self.topic.clone(),
-            partition: self.partition,
-            producer_id: view.producer_id(),
-            producer_epoch: view.producer_epoch(),
-            base_sequence: view.base_sequence(),
-            record_count: view.record_count() as i32,
-            byte_start: 0,
-            byte_len: 0,
-        };
-        self.flusher.append(meta, bytes.to_vec())
+        let (meta, bytes) = self.prepare_append(view, raw_bytes);
+        self.flusher.append(meta, bytes)
+    }
+
+    fn append_async<'a, 'b>(
+        &'a self,
+        view: &'a RecordBatchView<'b>,
+        raw_bytes: Option<&'a [u8]>,
+    ) -> AppendFuture<'a> {
+        let (meta, bytes) = self.prepare_append(view, raw_bytes);
+        self.flusher.append_async(meta, bytes)
     }
 
     fn read(&self, offset: i64, max_bytes: usize, _wait: FetchWait) -> Result<(Vec<u8>, i64)> {
@@ -268,6 +333,29 @@ impl PartitionLog for CoordinatorPartitionLog {
         self.coordinator
             .truncate_before(&self.topic, self.partition, offset)
             .map_err(coord_err)
+    }
+}
+
+impl CoordinatorPartitionLog {
+    fn prepare_append(
+        &self,
+        view: &RecordBatchView<'_>,
+        raw_bytes: Option<&[u8]>,
+    ) -> (BatchMeta, Vec<u8>) {
+        let bytes = raw_bytes.unwrap_or_else(|| view.raw());
+        // Enqueue into the shared flush buffer; byte_start/byte_len are filled in
+        // when the batch is multiplexed into an object at flush time.
+        let meta = BatchMeta {
+            topic: self.topic.clone(),
+            partition: self.partition,
+            producer_id: view.producer_id(),
+            producer_epoch: view.producer_epoch(),
+            base_sequence: view.base_sequence(),
+            record_count: view.record_count() as i32,
+            byte_start: 0,
+            byte_len: 0,
+        };
+        (meta, bytes.to_vec())
     }
 }
 
@@ -390,6 +478,31 @@ impl CoordinatorLogBackend {
             partitions,
         })
     }
+
+    fn prepare_append(
+        &self,
+        topic_name: &str,
+        partition: i32,
+        records: &[u8],
+    ) -> Result<(Arc<Flusher>, BatchMeta, Vec<u8>)> {
+        let view = RecordBatchView::from_bytes(records)?;
+        let topic = self
+            .topics
+            .lock()
+            .get(topic_name)
+            .cloned()
+            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
+        let partition = topic
+            .partitions
+            .get(partition as usize)
+            .cloned()
+            .ok_or_else(|| HeimqError::PartitionNotFound {
+                topic: topic_name.to_string(),
+                partition,
+            })?;
+        let (meta, bytes) = partition.prepare_append(&view, Some(records));
+        Ok((Arc::clone(&partition.flusher), meta, bytes))
+    }
 }
 
 impl LogBackend for CoordinatorLogBackend {
@@ -464,11 +577,21 @@ impl LogBackend for CoordinatorLogBackend {
     }
 
     fn append(&self, topic_name: &str, partition: i32, records: &[u8]) -> Result<(i64, i64)> {
-        let view = RecordBatchView::from_bytes(records)?;
-        let topic = self
-            .topic(topic_name)
-            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
-        topic.partition(partition)?.append(&view, Some(records))
+        let (flusher, meta, bytes) = self.prepare_append(topic_name, partition, records)?;
+        flusher.append(meta, bytes)
+    }
+
+    fn append_async<'a>(
+        &'a self,
+        topic_name: &'a str,
+        partition: i32,
+        records: &'a [u8],
+    ) -> AppendFuture<'a> {
+        let (flusher, meta, bytes) = match self.prepare_append(topic_name, partition, records) {
+            Ok(prepared) => prepared,
+            Err(err) => return Box::pin(std::future::ready(Err(err))),
+        };
+        flusher.append_async(meta, bytes)
     }
 
     fn fetch(
