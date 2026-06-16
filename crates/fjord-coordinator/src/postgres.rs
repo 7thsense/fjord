@@ -673,13 +673,17 @@ impl CoordinatorStore for PgCoordinator {
             )
             .await
             .map_err(pg_err)?;
-            txn.execute(
-                "INSERT INTO fjord_group_members (group_id, member_id) VALUES ($1, $2) \
-                 ON CONFLICT (group_id, member_id) DO NOTHING",
-                &[&group, &member_id],
-            )
-            .await
-            .map_err(pg_err)?;
+            // Only a genuine membership change bumps the generation (matching the
+            // in-memory reference): the INSERT affects 1 row for a new member, 0
+            // for a re-join of an existing one.
+            let inserted = txn
+                .execute(
+                    "INSERT INTO fjord_group_members (group_id, member_id) VALUES ($1, $2) \
+                     ON CONFLICT (group_id, member_id) DO NOTHING",
+                    &[&group, &member_id],
+                )
+                .await
+                .map_err(pg_err)?;
             let members: Vec<String> = txn
                 .query("SELECT member_id FROM fjord_group_members WHERE group_id = $1 ORDER BY member_id", &[&group])
                 .await
@@ -688,13 +692,12 @@ impl CoordinatorStore for PgCoordinator {
                 .map(|r| r.get::<_, String>(0))
                 .collect();
             let leader = members.first().cloned().unwrap_or_default();
-            let row = txn
-                .query_one(
-                    "UPDATE fjord_groups SET generation = generation + 1, leader = $2 WHERE group_id = $1 RETURNING generation",
-                    &[&group, &leader],
-                )
-                .await
-                .map_err(pg_err)?;
+            let sql = if inserted > 0 {
+                "UPDATE fjord_groups SET generation = generation + 1, leader = $2 WHERE group_id = $1 RETURNING generation"
+            } else {
+                "UPDATE fjord_groups SET leader = $2 WHERE group_id = $1 RETURNING generation"
+            };
+            let row = txn.query_one(sql, &[&group, &leader]).await.map_err(pg_err)?;
             let generation: i32 = row.get(0);
             txn.commit().await.map_err(pg_err)?;
             Ok(JoinResult { generation, leader, member_id: member_id.to_string(), members })
