@@ -79,9 +79,9 @@ impl PgCoordinator {
     /// `(url, schema)` share one coordinator state — that is the point.
     pub fn connect(url: &str) -> Result<Self> {
         let (cleaned, schema) = parse_url(url);
-        let mut pg_config: PgConfig = cleaned
-            .parse()
-            .map_err(|e: tokio_postgres::Error| CoordinatorError::Backend(format!("bad url: {e}")))?;
+        let mut pg_config: PgConfig = cleaned.parse().map_err(|e: tokio_postgres::Error| {
+            CoordinatorError::Backend(format!("bad url: {e}"))
+        })?;
         // Pin every pooled connection to this schema, so unqualified table names
         // resolve here regardless of which connection serves a query.
         pg_config.options(format!("-c search_path={schema}"));
@@ -89,7 +89,9 @@ impl PgCoordinator {
         let mgr = Manager::from_config(
             pg_config,
             NoTls,
-            ManagerConfig { recycling_method: RecyclingMethod::Fast },
+            ManagerConfig {
+                recycling_method: RecyclingMethod::Fast,
+            },
         );
         let pool = Pool::builder(mgr)
             .max_size(16)
@@ -269,7 +271,10 @@ impl CoordinatorStore for PgCoordinator {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
             let row = client
-                .query_opt("SELECT partitions FROM fjord_topics WHERE name = $1", &[&topic])
+                .query_opt(
+                    "SELECT partitions FROM fjord_topics WHERE name = $1",
+                    &[&topic],
+                )
                 .await
                 .map_err(pg_err)?;
             Ok(row.map(|r| r.get::<_, i32>(0)))
@@ -280,10 +285,16 @@ impl CoordinatorStore for PgCoordinator {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
             let rows = client
-                .query("SELECT name, partitions FROM fjord_topics ORDER BY name", &[])
+                .query(
+                    "SELECT name, partitions FROM fjord_topics ORDER BY name",
+                    &[],
+                )
                 .await
                 .map_err(pg_err)?;
-            Ok(rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, i32>(1))).collect())
+            Ok(rows
+                .iter()
+                .map(|r| (r.get::<_, String>(0), r.get::<_, i32>(1)))
+                .collect())
         })
     }
 
@@ -294,7 +305,10 @@ impl CoordinatorStore for PgCoordinator {
                 .query_one("SELECT nextval('fjord_producer_id_seq')", &[])
                 .await
                 .map_err(pg_err)?;
-            Ok(ProducerIdentity { producer_id: row.get::<_, i64>(0), producer_epoch: 0 })
+            Ok(ProducerIdentity {
+                producer_id: row.get::<_, i64>(0),
+                producer_epoch: 0,
+            })
         })
     }
 
@@ -337,6 +351,23 @@ impl CoordinatorStore for PgCoordinator {
                 let pkey: (String, i32) = (b.topic.clone(), b.partition);
 
                 if idem {
+                    // Transactional epoch fence: a producer with an open
+                    // transaction must present at least the current txn epoch
+                    // (re-init bumps it), even before its first idempotent produce
+                    // under the new epoch — else a zombie incarnation could write.
+                    let txn_epoch = txn
+                        .query_opt("SELECT epoch FROM fjord_txn WHERE producer_id = $1", &[&b.producer_id])
+                        .await
+                        .map_err(pg_err)?
+                        .map(|r| r.get::<_, i16>(0));
+                    if let Some(te) = txn_epoch {
+                        if b.producer_epoch < te {
+                            return Err(CoordinatorError::InvalidProducerEpoch {
+                                producer_id: b.producer_id,
+                                partition: b.partition,
+                            });
+                        }
+                    }
                     let prow = txn
                         .query_opt(
                             "SELECT epoch, next_seq FROM fjord_producers \
@@ -484,7 +515,12 @@ impl CoordinatorStore for PgCoordinator {
         })
     }
 
-    fn index_lookup(&self, topic: &str, partition: i32, fetch_offset: i64) -> Result<Vec<IndexEntry>> {
+    fn index_lookup(
+        &self,
+        topic: &str,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> Result<Vec<IndexEntry>> {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
             let rows = client
@@ -513,7 +549,10 @@ impl CoordinatorStore for PgCoordinator {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
             let row = client
-                .query_opt("SELECT hw FROM fjord_partitions WHERE topic = $1 AND partition = $2", &[&topic, &partition])
+                .query_opt(
+                    "SELECT hw FROM fjord_partitions WHERE topic = $1 AND partition = $2",
+                    &[&topic, &partition],
+                )
                 .await
                 .map_err(pg_err)?;
             Ok(row.map(|r| r.get::<_, i64>(0)).unwrap_or(0))
@@ -524,7 +563,10 @@ impl CoordinatorStore for PgCoordinator {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
             let row = client
-                .query_opt("SELECT log_start FROM fjord_partitions WHERE topic = $1 AND partition = $2", &[&topic, &partition])
+                .query_opt(
+                    "SELECT log_start FROM fjord_partitions WHERE topic = $1 AND partition = $2",
+                    &[&topic, &partition],
+                )
                 .await
                 .map_err(pg_err)?;
             Ok(row.map(|r| r.get::<_, i64>(0)).unwrap_or(0))
@@ -574,7 +616,13 @@ impl CoordinatorStore for PgCoordinator {
     fn delete_group_offsets(&self, group: &str) -> Result<()> {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
-            client.execute("DELETE FROM fjord_group_offsets WHERE group_id = $1", &[&group]).await.map_err(pg_err)?;
+            client
+                .execute(
+                    "DELETE FROM fjord_group_offsets WHERE group_id = $1",
+                    &[&group],
+                )
+                .await
+                .map_err(pg_err)?;
             Ok(())
         })
     }
@@ -726,7 +774,14 @@ impl CoordinatorStore for PgCoordinator {
         })
     }
 
-    fn txn_offset_commit(&self, producer_id: i64, group: &str, topic: &str, partition: i32, offset: i64) -> Result<()> {
+    fn txn_offset_commit(
+        &self,
+        producer_id: i64,
+        group: &str,
+        topic: &str,
+        partition: i32,
+        offset: i64,
+    ) -> Result<()> {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
             client
@@ -807,7 +862,12 @@ impl CoordinatorStore for PgCoordinator {
         })
     }
 
-    fn aborted_transactions(&self, topic: &str, partition: i32, fetch_offset: i64) -> Result<Vec<(i64, i64)>> {
+    fn aborted_transactions(
+        &self,
+        topic: &str,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> Result<Vec<(i64, i64)>> {
         self.block_on(async move {
             let client = self.pool.get().await.map_err(dp_err)?;
             let rows = client

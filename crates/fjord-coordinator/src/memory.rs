@@ -108,7 +108,8 @@ impl CoordinatorStore for MemoryCoordinator {
         // Pre-insert one partition_state per partition (COORD-001 B2): commit_object
         // is then always an update against an existing row, never a first-write race.
         for p in 0..partitions {
-            s.partitions.insert((topic.to_string(), p), PartitionState::default());
+            s.partitions
+                .insert((topic.to_string(), p), PartitionState::default());
         }
         Ok(())
     }
@@ -170,12 +171,26 @@ impl CoordinatorStore for MemoryCoordinator {
             let key = (b.producer_id, b.partition);
 
             if idem {
+                // Transactional epoch fence: a producer with an open transaction
+                // must present at least the current txn epoch (re-init bumps it),
+                // even before its first idempotent produce under the new epoch —
+                // otherwise a fenced/zombie incarnation could still write (TD-008).
+                if let Some(txn) = s.transactions.get(&b.producer_id) {
+                    if b.producer_epoch < txn.epoch {
+                        return Err(CoordinatorError::InvalidProducerEpoch {
+                            producer_id: b.producer_id,
+                            partition: b.partition,
+                        });
+                    }
+                }
                 // Duplicate against COMMITTED state: a same-epoch retry of a
                 // recent sequence returns its original offset and does not advance.
                 if let Some(ps) = s.producers.get(&key) {
                     if b.producer_epoch == ps.epoch {
-                        if let Some(&(_, off)) =
-                            ps.seq_to_offset.iter().find(|(sq, _)| *sq == b.base_sequence)
+                        if let Some(&(_, off)) = ps
+                            .seq_to_offset
+                            .iter()
+                            .find(|(sq, _)| *sq == b.base_sequence)
                         {
                             outcomes.push(CommitOutcome::Duplicate { base_offset: off });
                             continue;
@@ -227,7 +242,10 @@ impl CoordinatorStore for MemoryCoordinator {
                 }
                 // Advance the working baseline so later batches from the same
                 // producer in this call validate against it.
-                let cur_epoch = known.map(|(e, _)| e).unwrap_or(b.producer_epoch).max(b.producer_epoch);
+                let cur_epoch = known
+                    .map(|(e, _)| e)
+                    .unwrap_or(b.producer_epoch)
+                    .max(b.producer_epoch);
                 established.insert(key, (cur_epoch, b.base_sequence + b.record_count));
             }
 
@@ -291,7 +309,12 @@ impl CoordinatorStore for MemoryCoordinator {
         Ok(outcomes)
     }
 
-    fn index_lookup(&self, topic: &str, partition: i32, fetch_offset: i64) -> Result<Vec<IndexEntry>> {
+    fn index_lookup(
+        &self,
+        topic: &str,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> Result<Vec<IndexEntry>> {
         let s = self.state.lock();
         let pstate = s
             .partitions
@@ -373,16 +396,18 @@ impl CoordinatorStore for MemoryCoordinator {
 
     fn truncate_before(&self, topic: &str, partition: i32, offset: i64) -> Result<()> {
         let mut s = self.state.lock();
-        let p = s.partitions.get_mut(&(topic.to_string(), partition)).ok_or_else(|| {
-            CoordinatorError::UnknownTopicOrPartition {
+        let p = s
+            .partitions
+            .get_mut(&(topic.to_string(), partition))
+            .ok_or_else(|| CoordinatorError::UnknownTopicOrPartition {
                 topic: topic.to_string(),
                 partition,
-            }
-        })?;
+            })?;
         if offset > p.log_start {
             p.log_start = offset;
         }
-        p.index.retain(|e| e.base_offset + e.record_count as i64 > offset);
+        p.index
+            .retain(|e| e.base_offset + e.record_count as i64 > offset);
         Ok(())
     }
 
@@ -393,7 +418,12 @@ impl CoordinatorStore for MemoryCoordinator {
             g.generation += 1;
         }
         // Deterministic leader: lexicographically smallest member.
-        let leader = g.members.iter().next().cloned().expect("non-empty after insert");
+        let leader = g
+            .members
+            .iter()
+            .next()
+            .cloned()
+            .expect("non-empty after insert");
         Ok(JoinResult {
             generation: g.generation,
             leader,
@@ -428,12 +458,17 @@ impl CoordinatorStore for MemoryCoordinator {
             None => {
                 let pid = s.next_producer_id;
                 s.next_producer_id += 1;
-                s.transactional_ids.insert(transactional_id.to_string(), pid);
+                s.transactional_ids
+                    .insert(transactional_id.to_string(), pid);
                 pid
             }
         };
         // Re-init fences the prior incarnation by bumping the epoch; open a fresh txn.
-        let epoch = s.transactions.get(&producer_id).map(|t| t.epoch + 1).unwrap_or(0);
+        let epoch = s
+            .transactions
+            .get(&producer_id)
+            .map(|t| t.epoch + 1)
+            .unwrap_or(0);
         s.transactions.insert(
             producer_id,
             TxnState {
@@ -483,10 +518,11 @@ impl CoordinatorStore for MemoryCoordinator {
         } else {
             // Record each produced range as aborted for read_committed filtering.
             for (topic, partition, base, count) in produced {
-                s.aborted
-                    .entry((topic, partition))
-                    .or_default()
-                    .push((producer_id, base, base + count as i64 - 1));
+                s.aborted.entry((topic, partition)).or_default().push((
+                    producer_id,
+                    base,
+                    base + count as i64 - 1,
+                ));
             }
             // pending offsets are discarded (never applied).
         }
@@ -495,17 +531,22 @@ impl CoordinatorStore for MemoryCoordinator {
 
     fn last_stable_offset(&self, topic: &str, partition: i32) -> Result<i64> {
         let s = self.state.lock();
-        let pstate = s.partitions.get(&(topic.to_string(), partition)).ok_or_else(|| {
-            CoordinatorError::UnknownTopicOrPartition {
+        let pstate = s
+            .partitions
+            .get(&(topic.to_string(), partition))
+            .ok_or_else(|| CoordinatorError::UnknownTopicOrPartition {
                 topic: topic.to_string(),
                 partition,
-            }
-        })?;
+            })?;
         // LSO = min open-txn first offset on this partition, else the HW.
         let min_open = s
             .transactions
             .values()
-            .filter_map(|t| t.partition_first.get(&(topic.to_string(), partition)).copied())
+            .filter_map(|t| {
+                t.partition_first
+                    .get(&(topic.to_string(), partition))
+                    .copied()
+            })
             .min();
         Ok(min_open.unwrap_or(pstate.hw))
     }
@@ -552,9 +593,21 @@ mod tests {
         let c = MemoryCoordinator::new();
         c.create_topic("t", 1).unwrap();
         let o1 = c.commit_object("obj-1", &[batch("t", 0, 3)]).unwrap();
-        assert_eq!(o1, vec![CommitOutcome::Assigned { base_offset: 0, record_count: 3 }]);
+        assert_eq!(
+            o1,
+            vec![CommitOutcome::Assigned {
+                base_offset: 0,
+                record_count: 3
+            }]
+        );
         let o2 = c.commit_object("obj-2", &[batch("t", 0, 2)]).unwrap();
-        assert_eq!(o2, vec![CommitOutcome::Assigned { base_offset: 3, record_count: 2 }]);
+        assert_eq!(
+            o2,
+            vec![CommitOutcome::Assigned {
+                base_offset: 3,
+                record_count: 2
+            }]
+        );
         assert_eq!(c.high_watermark("t", 0).unwrap(), 5);
     }
 
@@ -563,14 +616,26 @@ mod tests {
         let c = MemoryCoordinator::new();
         c.create_topic("t", 2).unwrap();
         let out = c
-            .commit_object("obj", &[batch("t", 0, 1), batch("t", 1, 4), batch("t", 0, 2)])
+            .commit_object(
+                "obj",
+                &[batch("t", 0, 1), batch("t", 1, 4), batch("t", 0, 2)],
+            )
             .unwrap();
         assert_eq!(
             out,
             vec![
-                CommitOutcome::Assigned { base_offset: 0, record_count: 1 },
-                CommitOutcome::Assigned { base_offset: 0, record_count: 4 },
-                CommitOutcome::Assigned { base_offset: 1, record_count: 2 },
+                CommitOutcome::Assigned {
+                    base_offset: 0,
+                    record_count: 1
+                },
+                CommitOutcome::Assigned {
+                    base_offset: 0,
+                    record_count: 4
+                },
+                CommitOutcome::Assigned {
+                    base_offset: 1,
+                    record_count: 2
+                },
             ]
         );
         assert_eq!(c.high_watermark("t", 0).unwrap(), 3);
@@ -584,7 +649,10 @@ mod tests {
         let err = c
             .commit_object("obj", &[batch("t", 0, 1), batch("t", 9, 1)])
             .unwrap_err();
-        assert!(matches!(err, CoordinatorError::UnknownTopicOrPartition { .. }));
+        assert!(matches!(
+            err,
+            CoordinatorError::UnknownTopicOrPartition { .. }
+        ));
         // The valid batch must NOT have been applied (atomicity).
         assert_eq!(c.high_watermark("t", 0).unwrap(), 0);
     }
@@ -605,7 +673,13 @@ mod tests {
             byte_len: 0,
         };
         let first = c.commit_object("o1", &[mk(0)]).unwrap();
-        assert_eq!(first, vec![CommitOutcome::Assigned { base_offset: 0, record_count: 2 }]);
+        assert_eq!(
+            first,
+            vec![CommitOutcome::Assigned {
+                base_offset: 0,
+                record_count: 2
+            }]
+        );
         // Re-deliver the same sequence → duplicate with the original offset, HW unchanged.
         let dup = c.commit_object("o1-retry", &[mk(0)]).unwrap();
         assert_eq!(dup, vec![CommitOutcome::Duplicate { base_offset: 0 }]);
@@ -667,7 +741,10 @@ mod tests {
                 })
             })
             .collect();
-        let mut all: Vec<i64> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
+        let mut all: Vec<i64> = handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect();
         all.sort_unstable();
         // Every offset 0..threads*per assigned exactly once — no gaps, no dups.
         let expected: Vec<i64> = (0..(threads * per) as i64).collect();
@@ -716,7 +793,14 @@ mod tests {
         assert_eq!(c.describe_group("nope").unwrap(), None);
     }
 
-    fn txn_batch(pid: i64, epoch: i16, seq: i32, topic: &str, partition: i32, count: i32) -> BatchMeta {
+    fn txn_batch(
+        pid: i64,
+        epoch: i16,
+        seq: i32,
+        topic: &str,
+        partition: i32,
+        count: i32,
+    ) -> BatchMeta {
         BatchMeta {
             topic: topic.into(),
             partition,
@@ -734,12 +818,23 @@ mod tests {
         let c = MemoryCoordinator::new();
         c.create_topic("t", 1).unwrap();
         let p = c.init_transactional_producer("tx-1").unwrap();
-        c.commit_object("o", &[txn_batch(p.producer_id, p.producer_epoch, 0, "t", 0, 3)])
-            .unwrap();
+        c.commit_object(
+            "o",
+            &[txn_batch(p.producer_id, p.producer_epoch, 0, "t", 0, 3)],
+        )
+        .unwrap();
         assert_eq!(c.high_watermark("t", 0).unwrap(), 3);
-        assert_eq!(c.last_stable_offset("t", 0).unwrap(), 0, "LSO held until commit");
+        assert_eq!(
+            c.last_stable_offset("t", 0).unwrap(),
+            0,
+            "LSO held until commit"
+        );
         c.end_txn(p.producer_id, true).unwrap();
-        assert_eq!(c.last_stable_offset("t", 0).unwrap(), 3, "LSO released to HW on commit");
+        assert_eq!(
+            c.last_stable_offset("t", 0).unwrap(),
+            3,
+            "LSO released to HW on commit"
+        );
     }
 
     #[test]
@@ -747,12 +842,22 @@ mod tests {
         let c = MemoryCoordinator::new();
         c.create_topic("t", 1).unwrap();
         let p = c.init_transactional_producer("tx-2").unwrap();
-        c.commit_object("o", &[txn_batch(p.producer_id, p.producer_epoch, 0, "t", 0, 2)])
-            .unwrap();
+        c.commit_object(
+            "o",
+            &[txn_batch(p.producer_id, p.producer_epoch, 0, "t", 0, 2)],
+        )
+        .unwrap();
         assert_eq!(c.last_stable_offset("t", 0).unwrap(), 0);
         c.end_txn(p.producer_id, false).unwrap();
-        assert_eq!(c.last_stable_offset("t", 0).unwrap(), 2, "LSO released after abort");
-        assert_eq!(c.aborted_transactions("t", 0, 0).unwrap(), vec![(p.producer_id, 0)]);
+        assert_eq!(
+            c.last_stable_offset("t", 0).unwrap(),
+            2,
+            "LSO released after abort"
+        );
+        assert_eq!(
+            c.aborted_transactions("t", 0, 0).unwrap(),
+            vec![(p.producer_id, 0)]
+        );
         // A fetch starting past the aborted range sees no aborted entries.
         assert_eq!(c.aborted_transactions("t", 0, 2).unwrap(), vec![]);
     }
@@ -762,7 +867,11 @@ mod tests {
         let c = MemoryCoordinator::new();
         let p = c.init_transactional_producer("tx-3").unwrap();
         c.txn_offset_commit(p.producer_id, "g", "t", 0, 5).unwrap();
-        assert_eq!(c.offset_fetch("g", "t", 0).unwrap(), None, "staged, not yet visible");
+        assert_eq!(
+            c.offset_fetch("g", "t", 0).unwrap(),
+            None,
+            "staged, not yet visible"
+        );
         c.end_txn(p.producer_id, true).unwrap();
         assert_eq!(c.offset_fetch("g", "t", 0).unwrap(), Some(5));
 
@@ -771,7 +880,11 @@ mod tests {
         assert_eq!(p2.producer_id, p.producer_id);
         c.txn_offset_commit(p2.producer_id, "g", "t", 0, 9).unwrap();
         c.end_txn(p2.producer_id, false).unwrap();
-        assert_eq!(c.offset_fetch("g", "t", 0).unwrap(), Some(5), "aborted offset discarded");
+        assert_eq!(
+            c.offset_fetch("g", "t", 0).unwrap(),
+            Some(5),
+            "aborted offset discarded"
+        );
     }
 
     #[test]
