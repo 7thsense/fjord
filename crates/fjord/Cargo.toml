@@ -13,8 +13,8 @@ name = "fjord"
 path = "src/main.rs"
 
 [dependencies]
-heimq = { path = "../../../heimq/crates/heimq" }
-heimq-broker = { path = "../../../heimq/crates/heimq-broker" }
+heimq = { git = "https://github.com/easel/heimq", rev = "f9f4906" }
+heimq-broker = { git = "https://github.com/easel/heimq", rev = "f9f4906" }
 fjord-coordinator = { path = "../fjord-coordinator", features = ["postgres-backend"] }
 fjord-log = { path = "../fjord-log" }
 fjord-heimq-backend = { path = "../fjord-heimq-backend" }

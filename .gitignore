@@ -2,3 +2,7 @@
 
 # Local test credentials (never commit)
 /deploy/chaos/garage.env
+
+# Local-only dependency override: redirects git-pinned heimq/object-log deps to
+# sibling checkouts for co-development. CI builds against the pinned git deps.
+/.cargo/config.toml

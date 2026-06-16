@@ -9,12 +9,12 @@ repository.workspace = true
 description = "fjord Kafka broker backends: TopicLog, OffsetStore, ClusterView implementations"
 
 [dependencies]
-heimq-broker = { path = "../../../heimq/crates/heimq-broker" }
+heimq-broker = { git = "https://github.com/easel/heimq", rev = "f9f4906" }
 bytes = "1.10"
 parking_lot = "0.12"
 
 [dev-dependencies]
-heimq-testkit = { path = "../../../heimq/crates/heimq-testkit" }
+heimq-testkit = { git = "https://github.com/easel/heimq", rev = "f9f4906" }
 kafka-protocol = "0.15"
 bytes = "1"
 tokio = { version = "1.44", features = ["full"] }
