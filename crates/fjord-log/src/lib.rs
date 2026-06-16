@@ -41,6 +41,11 @@ impl MemoryBlobStore {
     pub fn object_count(&self) -> usize {
         self.map.lock().len()
     }
+    /// Total stored bytes across all objects — for average object-size (S3 cost)
+    /// measurement.
+    pub fn total_bytes(&self) -> usize {
+        self.map.lock().values().map(|v| v.len()).sum()
+    }
 }
 
 impl BlobStore for MemoryBlobStore {

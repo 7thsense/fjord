@@ -39,9 +39,13 @@ pub struct FlushConfig {
     /// group-commit-on-demand: flush immediately at low load, coalesce whatever
     /// accumulates while a flush is in flight under load (no added latency).
     pub timeout: Duration,
-    /// Flush once the buffered object reaches this many bytes.
+    /// Flush once the buffered object reaches this many bytes. This is the
+    /// primary object-size lever for S3 cost: larger objects ⇒ fewer PUTs.
     pub max_bytes: usize,
-    /// Flush once this many batches are buffered.
+    /// Flush once this many batches are buffered. A safety cap on per-flush
+    /// bookkeeping, deliberately high so `max_bytes` (not this) governs object
+    /// size — otherwise small records would cap objects far below `max_bytes`
+    /// and inflate the S3 PUT count.
     pub max_batches: usize,
 }
 
@@ -50,7 +54,7 @@ impl Default for FlushConfig {
         Self {
             timeout: Duration::ZERO,
             max_bytes: 8 * 1024 * 1024,
-            max_batches: 10_000,
+            max_batches: 1_000_000,
         }
     }
 }

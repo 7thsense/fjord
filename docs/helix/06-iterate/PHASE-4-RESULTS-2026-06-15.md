@@ -180,6 +180,29 @@ unbatched tail never reaches clients; consider coordinator group-commit /
   when the server-side flush thread (plain OS thread) called it — now owns a
   fallback runtime, mirroring `PgCoordinator`.
 
+- **Flush batching → S3 PUT cost** (`perf_flush_cost.rs`): each L0 object = one
+  S3 PUT (S3 bills per PUT), so larger objects = lower API cost. Sweeping
+  `max_bytes` with realistic client batching (200k × 512 B, 16 producers,
+  flush_timeout 25 ms):
+
+  | `max_bytes` | objects (PUTs) | avg object | throughput | PUTs / 1M records |
+  |---|---|---|---|---|
+  | 256 KB | 62 | 1.6 MB | 431k r/s | 310 |
+  | 1 MB | 45 | 2.2 MB | 486k r/s | 225 |
+  | 4 MB | 23 | 4.4 MB | 450k r/s | 115 |
+  | **8 MB (default)** | 17 | 5.9 MB | 404k r/s | **85** |
+  | 32 MB | 13 | 7.8 MB | 346k r/s | 65 |
+
+  Raising `max_bytes` cuts PUTs ~5× (310→65 per 1M records) while throughput
+  holds, because objects fill **by size** under load (the timeout only bounds
+  latency at low load). At the 8 MB default: ~85 PUTs/1M ≈ **$0.0004 per million
+  records** in S3 PUT cost — negligible. Fix: the `max_batches` default was 10000,
+  which capped objects at ~5 MB for small records *before* the byte cap; raised so
+  `max_bytes` governs. Object size = max(client batch size, accumulated-up-to-
+  `max_bytes` within the window); at low throughput objects are small but volume
+  (and thus PUTs) is low anyway. Tunable per deployment via `FJORD_FLUSH_MAX_BYTES`
+  / `broker.flushMaxBytes`.
+
 Still outstanding (not core gaps): coordinator-crash recovery with persistent
 Postgres (RDS/PVC, not the test's emptyDir); idempotent-producer
 exactly-once-under-chaos; optional Jepsen Elle on a recorded history.
