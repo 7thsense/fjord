@@ -84,7 +84,7 @@ fn assert_equivalent(oracle: &dyn CoordinatorStore, subject: &dyn CoordinatorSto
         let count = 1 + rng.next(3) as i32;
         let b = mk("t", 0, pid, 0, seq, count);
         let o = oracle
-            .commit_object(&format!("idem-{seq}"), &[b.clone()])
+            .commit_object(&format!("idem-{seq}"), std::slice::from_ref(&b))
             .unwrap();
         let s = subject.commit_object(&format!("idem-{seq}"), &[b]).unwrap();
         assert_eq!(o, s, "idempotent commit diverged at seq {seq}");
@@ -94,7 +94,9 @@ fn assert_equivalent(oracle: &dyn CoordinatorStore, subject: &dyn CoordinatorSto
     // Replay last 3 → both must report Duplicate with identical base offsets.
     for &(s_seq, count) in sent.iter().rev().take(3) {
         let b = mk("t", 0, pid, 0, s_seq, count);
-        let o = oracle.commit_object("replay", &[b.clone()]).unwrap();
+        let o = oracle
+            .commit_object("replay", std::slice::from_ref(&b))
+            .unwrap();
         let s = subject.commit_object("replay", &[b]).unwrap();
         assert_eq!(o, s, "replay outcome diverged at seq {s_seq}");
         assert!(

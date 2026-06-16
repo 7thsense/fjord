@@ -81,6 +81,7 @@ impl BlobStore for FaultyBlobStore {
 ///   * ack-loss — let the inner coordinator assign + persist, then return Err
 ///     anyway (the offset exists; the caller believes it failed). This is the
 ///     case idempotent fencing must make safe on retry.
+///
 /// Every other method delegates unchanged.
 struct FaultyCoordinator {
     inner: Arc<MemoryCoordinator>,

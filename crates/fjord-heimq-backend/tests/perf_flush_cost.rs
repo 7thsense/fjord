@@ -44,8 +44,9 @@ async fn run_one(max_bytes: usize) -> (usize, usize, f64) {
     let config = heimq::config::Config::parse_from(["heimq", "--port", &port.to_string()]);
     let offsets: Arc<dyn heimq_broker::storage::OffsetStore> =
         Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coord)));
-    let server = Server::with_backends(config, Arc::clone(&backend) as Arc<dyn LogBackend>, offsets)
-        .expect("server");
+    let server =
+        Server::with_backends(config, Arc::clone(&backend) as Arc<dyn LogBackend>, offsets)
+            .expect("server");
     tokio::spawn(async move { server.run().await.ok() });
     tokio::time::sleep(Duration::from_millis(400)).await;
     let bootstrap = format!("127.0.0.1:{port}");
@@ -72,7 +73,15 @@ async fn run_one(max_bytes: usize) -> (usize, usize, f64) {
             let mut futs = Vec::with_capacity(per);
             for i in 0..per {
                 let k = (i as u64).to_le_bytes();
-                futs.push(producer.send_result(FutureRecord::to(topic.as_str()).payload(&payload).key(&k[..])).expect("enqueue"));
+                futs.push(
+                    producer
+                        .send_result(
+                            FutureRecord::to(topic.as_str())
+                                .payload(&payload)
+                                .key(&k[..]),
+                        )
+                        .expect("enqueue"),
+                );
             }
             for f in futs {
                 f.await.expect("chan").expect("delivered");
@@ -84,7 +93,11 @@ async fn run_one(max_bytes: usize) -> (usize, usize, f64) {
     }
     let secs = t.elapsed().as_secs_f64();
     let produced = PRODUCERS * per;
-    (blob.object_count(), blob.total_bytes(), produced as f64 / secs)
+    (
+        blob.object_count(),
+        blob.total_bytes(),
+        produced as f64 / secs,
+    )
 }
 
 #[ignore = "perf benchmark; run with --ignored --nocapture (sandbox disabled)"]
@@ -100,9 +113,17 @@ async fn flush_cost_sweep() {
     for mb in [256 * 1024usize, 1 << 20, 4 << 20, 8 << 20, 32 << 20] {
         let (objects, bytes, rate) = run_one(mb).await;
         let recs_per = if objects > 0 { N / objects } else { 0 };
-        let kb_per = if objects > 0 { (bytes / objects) as f64 / 1024.0 } else { 0.0 };
+        let kb_per = if objects > 0 {
+            (bytes / objects) as f64 / 1024.0
+        } else {
+            0.0
+        };
         let puts_per_m = (objects as f64) * 1_000_000.0 / (N as f64);
-        let label = if mb >= 1 << 20 { format!("{}MB", mb >> 20) } else { format!("{}KB", mb >> 10) };
+        let label = if mb >= 1 << 20 {
+            format!("{}MB", mb >> 20)
+        } else {
+            format!("{}KB", mb >> 10)
+        };
         eprintln!(
             "{label:>12} | {objects:>12} | {recs_per:>14} | {kb_per:>14.1} | {rate:>9.0} r/s | {puts_per_m:>18.0}",
         );

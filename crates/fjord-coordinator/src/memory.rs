@@ -48,6 +48,9 @@ struct TxnState {
     pending_offsets: HashMap<(String, String, i32), i64>,
 }
 
+/// An aborted record range: (producer_id, first_offset, last_offset).
+type AbortedRange = (i64, i64, i64);
+
 #[derive(Default)]
 struct State {
     topics: HashMap<String, i32>,
@@ -62,7 +65,7 @@ struct State {
     /// transactional.id -> producer_id (stable across re-init).
     transactional_ids: HashMap<String, i64>,
     /// (topic, partition) -> aborted ranges (producer_id, first_offset, last_offset).
-    aborted: HashMap<(String, i32), Vec<(i64, i64, i64)>>,
+    aborted: HashMap<(String, i32), Vec<AbortedRange>>,
 }
 
 /// In-memory coordinator backend.

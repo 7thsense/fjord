@@ -829,7 +829,7 @@ impl FjordGroup {
         if self.leader_id.is_empty() {
             self.leader_id = member_id.clone();
         }
-        self.members.entry(member_id).or_insert_with(Vec::new);
+        self.members.entry(member_id).or_default();
     }
 }
 

@@ -174,11 +174,11 @@ async fn object_log_kafka_throughput_smoke() {
         .expect("producer");
     let keys: Vec<String> = (0..N).map(|i| format!("k{i}")).collect();
     let mut futs = Vec::with_capacity(N);
-    for i in 0..N {
+    for key in &keys {
         let fut = producer.send(
             FutureRecord::to(topic)
                 .payload(&payload)
-                .key(keys[i].as_bytes()),
+                .key(key.as_bytes()),
             Duration::from_secs(10),
         );
         futs.push(fut);
