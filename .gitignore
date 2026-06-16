@@ -1,1 +1,4 @@
 /target/
+
+# Local test credentials (never commit)
+/deploy/chaos/garage.env
