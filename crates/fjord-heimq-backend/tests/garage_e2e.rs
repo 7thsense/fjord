@@ -24,8 +24,8 @@ async fn rdkafka_over_garage_s3_roundtrip() {
         eprintln!("FJORD_GARAGE_SECRET unset — skipping full-stack Garage e2e");
         return;
     };
-    let endpoint =
-        std::env::var("FJORD_GARAGE_ENDPOINT").unwrap_or_else(|_| "http://eldir.azgaard.home:3900".to_string());
+    let endpoint = std::env::var("FJORD_GARAGE_ENDPOINT")
+        .unwrap_or_else(|_| "http://eldir.azgaard.home:3900".to_string());
     let region = std::env::var("FJORD_GARAGE_REGION").unwrap_or_else(|_| "garage".to_string());
     let bucket = std::env::var("FJORD_GARAGE_BUCKET").unwrap_or_else(|_| "fjord".to_string());
     let key_id = std::env::var("FJORD_GARAGE_KEY_ID")
@@ -37,11 +37,13 @@ async fn rdkafka_over_garage_s3_roundtrip() {
     // Unique topic per run so object keys don't collide in the shared bucket.
     let topic = format!("garage-e2e-{port}");
     let spec = format!("{topic}:1");
-    let config = heimq::config::Config::parse_from(["heimq", "--port", &port_str, "--create-topic", &spec]);
+    let config =
+        heimq::config::Config::parse_from(["heimq", "--port", &port_str, "--create-topic", &spec]);
 
     let coord: Arc<dyn CoordinatorStore> = Arc::new(MemoryCoordinator::new());
-    let blob: Arc<dyn BlobStore> =
-        Arc::new(S3BlobStore::new(&endpoint, &region, &bucket, &key_id, &secret));
+    let blob: Arc<dyn BlobStore> = Arc::new(S3BlobStore::new(
+        &endpoint, &region, &bucket, &key_id, &secret,
+    ));
     let backend = Arc::new(CoordinatorLogBackend::new(Arc::clone(&coord), blob));
     let offsets: Arc<dyn heimq_broker::storage::OffsetStore> =
         Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coord)));
@@ -92,5 +94,8 @@ async fn rdkafka_over_garage_s3_roundtrip() {
     .await
     .expect("blocking");
 
-    assert_eq!(count, 20, "expected 20 records round-tripped through Garage S3, got {count}");
+    assert_eq!(
+        count, 20,
+        "expected 20 records round-tripped through Garage S3, got {count}"
+    );
 }

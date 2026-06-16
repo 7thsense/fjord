@@ -33,11 +33,22 @@ use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::ClientConfig;
 
-fn start_fjord(topic: &str, partitions: i32, coord: Arc<dyn CoordinatorStore>, blob: Arc<dyn BlobStore>) -> (Server, String) {
+fn start_fjord(
+    topic: &str,
+    partitions: i32,
+    coord: Arc<dyn CoordinatorStore>,
+    blob: Arc<dyn BlobStore>,
+) -> (Server, String) {
     use clap::Parser as _;
     let port = heimq::test_support::next_port();
     let spec = format!("{topic}:{partitions}");
-    let config = heimq::config::Config::parse_from(["heimq", "--port", &port.to_string(), "--create-topic", &spec]);
+    let config = heimq::config::Config::parse_from([
+        "heimq",
+        "--port",
+        &port.to_string(),
+        "--create-topic",
+        &spec,
+    ]);
     let backend = Arc::new(CoordinatorLogBackend::new(Arc::clone(&coord), blob));
     let offsets: Arc<dyn heimq_broker::storage::OffsetStore> =
         Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coord)));
@@ -58,7 +69,11 @@ async fn produce_timed(bootstrap: &str, topic: &str, n: usize) -> f64 {
     let mut futs = Vec::with_capacity(n);
     for i in 0..n {
         let k = i.to_le_bytes();
-        futs.push(producer.send_result(FutureRecord::to(topic).payload(&payload).key(&k[..])).expect("enqueue"));
+        futs.push(
+            producer
+                .send_result(FutureRecord::to(topic).payload(&payload).key(&k[..]))
+                .expect("enqueue"),
+        );
     }
     for f in futs {
         f.await.expect("delivery channel").expect("delivered");
@@ -89,7 +104,12 @@ fn consume_timed(bootstrap: &str, topic: &str, group: &str, n: usize) -> f64 {
     n as f64 / t.elapsed().as_secs_f64()
 }
 
-async fn bench(label: &str, coord: Arc<dyn CoordinatorStore>, blob: Arc<dyn BlobStore>, n: usize) -> (f64, f64) {
+async fn bench(
+    label: &str,
+    coord: Arc<dyn CoordinatorStore>,
+    blob: Arc<dyn BlobStore>,
+    n: usize,
+) -> (f64, f64) {
     let topic = format!("perf-{}", label.replace(['+', ' '], "-"));
     let (server, bs) = start_fjord(&topic, 1, coord, blob);
     tokio::spawn(async move { server.run().await.ok() });
@@ -127,17 +147,29 @@ async fn durable_path_throughput() {
     .await;
 
     // 2. Postgres coordinator + memory store (durable sequencing).
-    let pg: Arc<dyn CoordinatorStore> = Arc::new(PgCoordinator::connect_fresh(&pg_url).expect("pg connect"));
-    let (pg_p, pg_c) = bench("postgres coord + memory store", pg, Arc::new(MemoryBlobStore::new()), n).await;
+    let pg: Arc<dyn CoordinatorStore> =
+        Arc::new(PgCoordinator::connect_fresh(&pg_url).expect("pg connect"));
+    let (pg_p, pg_c) = bench(
+        "postgres coord + memory store",
+        pg,
+        Arc::new(MemoryBlobStore::new()),
+        n,
+    )
+    .await;
 
     // 3. Full durable path: Postgres + real S3 (Garage), if creds present.
     if let Ok(secret) = std::env::var("FJORD_GARAGE_SECRET") {
-        let endpoint = std::env::var("FJORD_GARAGE_ENDPOINT").unwrap_or_else(|_| "http://eldir.azgaard.home:3900".into());
+        let endpoint = std::env::var("FJORD_GARAGE_ENDPOINT")
+            .unwrap_or_else(|_| "http://eldir.azgaard.home:3900".into());
         let region = std::env::var("FJORD_GARAGE_REGION").unwrap_or_else(|_| "garage".into());
         let bucket = std::env::var("FJORD_GARAGE_BUCKET").unwrap_or_else(|_| "fjord".into());
-        let key_id = std::env::var("FJORD_GARAGE_KEY_ID").unwrap_or_else(|_| "GKb60b75119f2ffd85518a31c2".into());
-        let s3: Arc<dyn BlobStore> = Arc::new(S3BlobStore::new(&endpoint, &region, &bucket, &key_id, &secret));
-        let pg2: Arc<dyn CoordinatorStore> = Arc::new(PgCoordinator::connect_fresh(&pg_url).expect("pg connect"));
+        let key_id = std::env::var("FJORD_GARAGE_KEY_ID")
+            .unwrap_or_else(|_| "GKb60b75119f2ffd85518a31c2".into());
+        let s3: Arc<dyn BlobStore> = Arc::new(S3BlobStore::new(
+            &endpoint, &region, &bucket, &key_id, &secret,
+        ));
+        let pg2: Arc<dyn CoordinatorStore> =
+            Arc::new(PgCoordinator::connect_fresh(&pg_url).expect("pg connect"));
         let (s3_p, s3_c) = bench("postgres coord + S3 (Garage) store", pg2, s3, n).await;
         eprintln!(
             "\nfull-durable vs baseline: produce {:.0}% | consume {:.0}%",

@@ -104,10 +104,21 @@ pub struct GroupDescription {
 /// Coordinator error surface. Variants map to Kafka error codes at the gateway.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoordinatorError {
-    UnknownTopicOrPartition { topic: String, partition: i32 },
+    UnknownTopicOrPartition {
+        topic: String,
+        partition: i32,
+    },
     TopicExists(String),
-    InvalidProducerEpoch { producer_id: i64, partition: i32 },
-    OutOfOrderSequence { producer_id: i64, partition: i32, expected: i32, got: i32 },
+    InvalidProducerEpoch {
+        producer_id: i64,
+        partition: i32,
+    },
+    OutOfOrderSequence {
+        producer_id: i64,
+        partition: i32,
+        expected: i32,
+        got: i32,
+    },
     Backend(String),
 }
 
@@ -118,10 +129,21 @@ impl fmt::Display for CoordinatorError {
                 write!(f, "unknown topic-partition {topic}-{partition}")
             }
             CoordinatorError::TopicExists(t) => write!(f, "topic already exists: {t}"),
-            CoordinatorError::InvalidProducerEpoch { producer_id, partition } => {
-                write!(f, "invalid producer epoch for producer {producer_id} on partition {partition}")
+            CoordinatorError::InvalidProducerEpoch {
+                producer_id,
+                partition,
+            } => {
+                write!(
+                    f,
+                    "invalid producer epoch for producer {producer_id} on partition {partition}"
+                )
             }
-            CoordinatorError::OutOfOrderSequence { producer_id, partition, expected, got } => {
+            CoordinatorError::OutOfOrderSequence {
+                producer_id,
+                partition,
+                expected,
+                got,
+            } => {
                 write!(f, "out-of-order sequence for producer {producer_id} on partition {partition}: expected {expected}, got {got}")
             }
             CoordinatorError::Backend(m) => write!(f, "coordinator backend error: {m}"),
@@ -155,7 +177,12 @@ pub trait CoordinatorStore: Send + Sync {
     fn commit_object(&self, object_id: &str, batches: &[BatchMeta]) -> Result<Vec<CommitOutcome>>;
 
     /// Ordered index entries covering offsets at/after `fetch_offset`.
-    fn index_lookup(&self, topic: &str, partition: i32, fetch_offset: i64) -> Result<Vec<IndexEntry>>;
+    fn index_lookup(
+        &self,
+        topic: &str,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> Result<Vec<IndexEntry>>;
     fn high_watermark(&self, topic: &str, partition: i32) -> Result<i64>;
     fn log_start_offset(&self, topic: &str, partition: i32) -> Result<i64>;
 
@@ -207,5 +234,10 @@ pub trait CoordinatorStore: Send + Sync {
     fn last_stable_offset(&self, topic: &str, partition: i32) -> Result<i64>;
     /// Aborted `(producer_id, first_offset)` ranges overlapping offsets at/after
     /// `fetch_offset`, for `read_committed` Fetch filtering.
-    fn aborted_transactions(&self, topic: &str, partition: i32, fetch_offset: i64) -> Result<Vec<(i64, i64)>>;
+    fn aborted_transactions(
+        &self,
+        topic: &str,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> Result<Vec<(i64, i64)>>;
 }

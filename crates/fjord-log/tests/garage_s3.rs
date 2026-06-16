@@ -31,8 +31,8 @@ async fn produce_fetch_durable_on_garage_s3() {
         eprintln!("FJORD_GARAGE_SECRET unset — skipping Garage S3 backend test");
         return;
     };
-    let endpoint =
-        std::env::var("FJORD_GARAGE_ENDPOINT").unwrap_or_else(|_| "http://eldir.azgaard.home:3900".to_string());
+    let endpoint = std::env::var("FJORD_GARAGE_ENDPOINT")
+        .unwrap_or_else(|_| "http://eldir.azgaard.home:3900".to_string());
     let region = std::env::var("FJORD_GARAGE_REGION").unwrap_or_else(|_| "garage".to_string());
     let bucket = std::env::var("FJORD_GARAGE_BUCKET").unwrap_or_else(|_| "fjord".to_string());
     let key_id = std::env::var("FJORD_GARAGE_KEY_ID")
@@ -41,18 +41,36 @@ async fn produce_fetch_durable_on_garage_s3() {
     let coord: Arc<dyn CoordinatorStore> = Arc::new(MemoryCoordinator::new());
     coord.create_topic("t", 2).unwrap();
 
-    let store1: Arc<dyn BlobStore> =
-        Arc::new(S3BlobStore::new(&endpoint, &region, &bucket, &key_id, &secret));
+    let store1: Arc<dyn BlobStore> = Arc::new(S3BlobStore::new(
+        &endpoint, &region, &bucket, &key_id, &secret,
+    ));
     let w = WritePath::new(Arc::clone(&coord), Arc::clone(&store1));
-    w.produce(&[pb("t", 0, b"garage-alpha", 1), pb("t", 1, b"garage-beta", 2)]).unwrap();
+    w.produce(&[
+        pb("t", 0, b"garage-alpha", 1),
+        pb("t", 1, b"garage-beta", 2),
+    ])
+    .unwrap();
     w.produce(&[pb("t", 0, b"garage-gamma", 1)]).unwrap();
 
     // Fresh S3 client over the same bucket → the bytes must be durable in Garage.
-    let store2: Arc<dyn BlobStore> =
-        Arc::new(S3BlobStore::new(&endpoint, &region, &bucket, &key_id, &secret));
+    let store2: Arc<dyn BlobStore> = Arc::new(S3BlobStore::new(
+        &endpoint, &region, &bucket, &key_id, &secret,
+    ));
     let r = ReadPath::new(Arc::clone(&coord), store2);
 
-    let p0: Vec<_> = r.fetch("t", 0, 0).unwrap().into_iter().map(|b| b.payload).collect();
-    assert_eq!(p0, vec![b"garage-alpha".to_vec(), b"garage-gamma".to_vec()], "partition 0 durable in Garage");
-    assert_eq!(r.fetch("t", 1, 0).unwrap()[0].payload, b"garage-beta".to_vec());
+    let p0: Vec<_> = r
+        .fetch("t", 0, 0)
+        .unwrap()
+        .into_iter()
+        .map(|b| b.payload)
+        .collect();
+    assert_eq!(
+        p0,
+        vec![b"garage-alpha".to_vec(), b"garage-gamma".to_vec()],
+        "partition 0 durable in Garage"
+    );
+    assert_eq!(
+        r.fetch("t", 1, 0).unwrap()[0].payload,
+        b"garage-beta".to_vec()
+    );
 }

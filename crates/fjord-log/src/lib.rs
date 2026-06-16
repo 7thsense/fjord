@@ -162,8 +162,15 @@ impl ReadPath {
     }
 
     /// Return batches covering offsets at/after `fetch_offset`, in offset order.
-    pub fn fetch(&self, topic: &str, partition: i32, fetch_offset: i64) -> Result<Vec<FetchedBatch>, Error> {
-        let entries = self.coordinator.index_lookup(topic, partition, fetch_offset)?;
+    pub fn fetch(
+        &self,
+        topic: &str,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> Result<Vec<FetchedBatch>, Error> {
+        let entries = self
+            .coordinator
+            .index_lookup(topic, partition, fetch_offset)?;
         let mut out = Vec::with_capacity(entries.len());
         for e in entries {
             let object = self
@@ -220,8 +227,22 @@ mod tests {
 
         let all = r.fetch("t", 0, 0).unwrap();
         assert_eq!(all.len(), 2);
-        assert_eq!(all[0], FetchedBatch { base_offset: 0, record_count: 2, payload: b"hello".to_vec() });
-        assert_eq!(all[1], FetchedBatch { base_offset: 2, record_count: 3, payload: b"world".to_vec() });
+        assert_eq!(
+            all[0],
+            FetchedBatch {
+                base_offset: 0,
+                record_count: 2,
+                payload: b"hello".to_vec()
+            }
+        );
+        assert_eq!(
+            all[1],
+            FetchedBatch {
+                base_offset: 2,
+                record_count: 3,
+                payload: b"world".to_vec()
+            }
+        );
 
         // Fetch from a mid offset returns only the covering batch.
         let tail = r.fetch("t", 0, 2).unwrap();
@@ -246,10 +267,20 @@ mod tests {
             batch("t", 0, b"p0b", 1),
         ])
         .unwrap();
-        assert_eq!(blob.object_count(), 1, "all partitions multiplexed into one object");
+        assert_eq!(
+            blob.object_count(),
+            1,
+            "all partitions multiplexed into one object"
+        );
 
-        assert_eq!(r.fetch("t", 0, 0).unwrap().iter().map(|b| b.payload.clone()).collect::<Vec<_>>(),
-                   vec![b"p0a".to_vec(), b"p0b".to_vec()]);
+        assert_eq!(
+            r.fetch("t", 0, 0)
+                .unwrap()
+                .iter()
+                .map(|b| b.payload.clone())
+                .collect::<Vec<_>>(),
+            vec![b"p0a".to_vec(), b"p0b".to_vec()]
+        );
         assert_eq!(r.fetch("t", 1, 0).unwrap()[0].payload, b"p1aaaa".to_vec());
         assert_eq!(r.fetch("t", 2, 0).unwrap()[0].payload, b"p2".to_vec());
         // Per-partition offsets are independent and contiguous.
@@ -292,9 +323,15 @@ mod tests {
             payload: b"once".to_vec(),
         };
         let first = w.produce(&[mk()]).unwrap();
-        assert!(matches!(first[0], CommitOutcome::Assigned { base_offset: 0, .. }));
+        assert!(matches!(
+            first[0],
+            CommitOutcome::Assigned { base_offset: 0, .. }
+        ));
         let retry = w.produce(&[mk()]).unwrap();
-        assert!(matches!(retry[0], CommitOutcome::Duplicate { base_offset: 0 }));
+        assert!(matches!(
+            retry[0],
+            CommitOutcome::Duplicate { base_offset: 0 }
+        ));
         // Only one record visible despite the retried produce.
         assert_eq!(coord.high_watermark("t", 0).unwrap(), 1);
         assert_eq!(r.fetch("t", 0, 0).unwrap().len(), 1);

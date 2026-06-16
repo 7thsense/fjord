@@ -5,16 +5,16 @@
 //! conformance suites, plus a topology-aware metadata model.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use heimq_broker::consumer_group::{
-    GroupCoordinatorBackend, GroupCoordinatorCapabilities, HeartbeatResult,
-    JoinRequest, JoinResult, LeaveResult, SyncRequest, SyncResult,
-};
 use heimq_broker::consumer_group::backend::{GroupDescription, MemberDescription};
+use heimq_broker::consumer_group::{
+    GroupCoordinatorBackend, GroupCoordinatorCapabilities, HeartbeatResult, JoinRequest,
+    JoinResult, LeaveResult, SyncRequest, SyncResult,
+};
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
     AtomicAppendScope, BackendCapabilities, BrokerInfo, ClusterView, ClusterViewError,
@@ -378,7 +378,10 @@ impl LogBackend for FjordLog {
     fn create_topic(&self, name: &str, num_partitions: i32) -> Result<Arc<dyn TopicLog>> {
         let mut topics = self.topics.lock();
         if topics.contains_key(name) {
-            return Err(HeimqError::Protocol(format!("topic '{}' already exists", name)));
+            return Err(HeimqError::Protocol(format!(
+                "topic '{}' already exists",
+                name
+            )));
         }
         let t = Arc::new(FjordTopicLog::new(name.to_string(), num_partitions));
         topics.insert(name.to_string(), t.clone());
@@ -501,7 +504,6 @@ impl FjordOffsetStore {
     }
 }
 
-
 impl OffsetStore for FjordOffsetStore {
     fn commit(
         &self,
@@ -552,7 +554,11 @@ impl OffsetStore for FjordOffsetStore {
     }
 
     fn delete_offset(&self, group_id: &str, topic: &str, partition: i32) {
-        let key = OffsetKey { group_id: group_id.to_string(), topic: topic.to_string(), partition };
+        let key = OffsetKey {
+            group_id: group_id.to_string(),
+            topic: topic.to_string(),
+            partition,
+        };
         self.offsets.lock().remove(&key);
     }
 
@@ -572,7 +578,12 @@ pub struct FjordClusterView {
 }
 
 impl FjordClusterView {
-    pub fn new(node_id: i32, host: impl Into<String>, port: u16, cluster_id: impl Into<String>) -> Self {
+    pub fn new(
+        node_id: i32,
+        host: impl Into<String>,
+        port: u16,
+        cluster_id: impl Into<String>,
+    ) -> Self {
         Self {
             broker: BrokerInfo {
                 node_id,
@@ -621,14 +632,21 @@ impl ClusterView for FjordClusterView {
         self.cluster_id.clone()
     }
 
-    fn partition_leader(&self, topic: &str, partition: i32) -> std::result::Result<BrokerInfo, ClusterViewError> {
+    fn partition_leader(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> std::result::Result<BrokerInfo, ClusterViewError> {
         match &self.registry {
             Some(reg) => reg.partition_leader_self(topic, partition, &self.broker),
             None => Ok(self.self_broker()),
         }
     }
 
-    fn find_coordinator(&self, _group_id: &str) -> std::result::Result<BrokerInfo, ClusterViewError> {
+    fn find_coordinator(
+        &self,
+        _group_id: &str,
+    ) -> std::result::Result<BrokerInfo, ClusterViewError> {
         Ok(self.self_broker())
     }
 }
@@ -787,7 +805,7 @@ impl ClusterView for FjordMultiBrokerClusterView {
 struct FjordGroup {
     generation_id: i32,
     leader_id: String,
-    members: HashMap<String, Vec<u8>>,      // member_id → assignment bytes
+    members: HashMap<String, Vec<u8>>, // member_id → assignment bytes
     member_counter: usize,
 }
 
@@ -848,7 +866,9 @@ impl Default for FjordGroupCoordinator {
 impl GroupCoordinatorBackend for FjordGroupCoordinator {
     fn join_group(&self, req: JoinRequest) -> JoinResult {
         let mut groups = self.groups.lock();
-        let group = groups.entry(req.group_id.clone()).or_insert_with(FjordGroup::new);
+        let group = groups
+            .entry(req.group_id.clone())
+            .or_insert_with(FjordGroup::new);
 
         if req.member_id.is_empty() {
             let new_id = group.mint_member_id();
@@ -872,7 +892,11 @@ impl GroupCoordinatorBackend for FjordGroupCoordinator {
             member_id: req.member_id,
             leader_id,
             protocol_type: req.protocol_type,
-            protocol_name: req.protocols.first().map(|(n, _)| n.clone()).unwrap_or_default(),
+            protocol_name: req
+                .protocols
+                .first()
+                .map(|(n, _)| n.clone())
+                .unwrap_or_default(),
             members: Vec::new(),
         }
     }
@@ -881,13 +905,24 @@ impl GroupCoordinatorBackend for FjordGroupCoordinator {
         let mut groups = self.groups.lock();
         let group = match groups.get_mut(&req.group_id) {
             Some(g) => g,
-            None => return SyncResult { error_code: 16, assignment: Vec::new() },
+            None => {
+                return SyncResult {
+                    error_code: 16,
+                    assignment: Vec::new(),
+                }
+            }
         };
         if group.generation_id != req.generation_id {
-            return SyncResult { error_code: 22, assignment: Vec::new() };
+            return SyncResult {
+                error_code: 22,
+                assignment: Vec::new(),
+            };
         }
         if !group.members.contains_key(&req.member_id) {
-            return SyncResult { error_code: 25, assignment: Vec::new() };
+            return SyncResult {
+                error_code: 25,
+                assignment: Vec::new(),
+            };
         }
         if group.leader_id == req.member_id {
             for (mid, assignment) in req.assignments {
@@ -896,8 +931,15 @@ impl GroupCoordinatorBackend for FjordGroupCoordinator {
                 }
             }
         }
-        let assignment = group.members.get(&req.member_id).cloned().unwrap_or_default();
-        SyncResult { error_code: 0, assignment }
+        let assignment = group
+            .members
+            .get(&req.member_id)
+            .cloned()
+            .unwrap_or_default();
+        SyncResult {
+            error_code: 0,
+            assignment,
+        }
     }
 
     fn heartbeat(&self, group_id: &str, generation_id: i32, member_id: &str) -> HeartbeatResult {
@@ -938,19 +980,27 @@ impl GroupCoordinatorBackend for FjordGroupCoordinator {
     fn describe_group(&self, group_id: &str) -> Option<GroupDescription> {
         let groups = self.groups.lock();
         let group = groups.get(group_id)?;
-        let state = if group.members.is_empty() { "Empty" } else { "Stable" };
+        let state = if group.members.is_empty() {
+            "Empty"
+        } else {
+            "Stable"
+        };
         Some(GroupDescription {
             group_id: group_id.to_string(),
             group_state: state.to_string(),
             protocol_type: "consumer".to_string(),
             protocol_name: String::new(),
-            members: group.members.keys().map(|id| MemberDescription {
-                member_id: id.clone(),
-                client_id: String::new(),
-                client_host: String::new(),
-                member_metadata: Vec::new(),
-                member_assignment: group.members.get(id).cloned().unwrap_or_default(),
-            }).collect(),
+            members: group
+                .members
+                .keys()
+                .map(|id| MemberDescription {
+                    member_id: id.clone(),
+                    client_id: String::new(),
+                    client_host: String::new(),
+                    member_metadata: Vec::new(),
+                    member_assignment: group.members.get(id).cloned().unwrap_or_default(),
+                })
+                .collect(),
         })
     }
 
@@ -996,7 +1046,10 @@ mod cluster_tests {
                 .map(|v| v.partition_leader("orders", p).unwrap().node_id)
                 .collect();
             // All three brokers present the identical leader for this partition.
-            assert!(leaders.windows(2).all(|w| w[0] == w[1]), "disagreement at p{p}: {leaders:?}");
+            assert!(
+                leaders.windows(2).all(|w| w[0] == w[1]),
+                "disagreement at p{p}: {leaders:?}"
+            );
         }
     }
 
@@ -1012,12 +1065,19 @@ mod cluster_tests {
                 let leader = v.partition_leader("orders", p).unwrap().node_id;
                 *counts.entry(leader).or_insert(0) += 1;
             }
-            assert_eq!(counts.len(), n as usize, "every one of {n} brokers must own some partitions: {counts:?}");
+            assert_eq!(
+                counts.len(),
+                n as usize,
+                "every one of {n} brokers must own some partitions: {counts:?}"
+            );
             // No broker should be wildly over-loaded (sanity, not exactness):
             // each should be within 3x of an even share.
             let even = 64.0 / n as f64;
             for (&node, &c) in &counts {
-                assert!((c as f64) < even * 3.0, "broker {node} over-loaded: {c} of 64 (even≈{even:.1})");
+                assert!(
+                    (c as f64) < even * 3.0,
+                    "broker {node} over-loaded: {c} of 64 (even≈{even:.1})"
+                );
             }
         }
     }

@@ -46,13 +46,19 @@ fn fjord_log_backend_returns_arc_topic_with_correct_partition_count() {
     assert_eq!(topic.num_partitions(), 3);
     assert!(topic.partition(0).is_ok());
     assert!(topic.partition(2).is_ok());
-    assert!(topic.partition(3).is_err(), "partition 3 must not exist for a 3-partition topic");
+    assert!(
+        topic.partition(3).is_err(),
+        "partition 3 must not exist for a 3-partition topic"
+    );
 }
 
 #[test]
 fn fjord_log_backend_auto_create_is_false() {
     let backend = FjordLog::new();
-    assert!(!backend.auto_create_topics(), "fjord must not auto-create topics by default");
+    assert!(
+        !backend.auto_create_topics(),
+        "fjord must not auto-create topics by default"
+    );
     // Accessing an unknown topic must fail gracefully.
     assert!(backend.topic("no-such-topic").is_none());
 }
@@ -64,8 +70,14 @@ fn fjord_offset_store_delete_group_clears_all_offsets() {
     store.commit("grp", "t1", 0, 10, 0, None).unwrap();
     store.commit("grp", "t2", 0, 20, 0, None).unwrap();
     store.delete_group("grp");
-    assert!(store.fetch("grp", "t1", 0).is_none(), "offset should be cleared after delete_group");
-    assert!(store.fetch("grp", "t2", 0).is_none(), "offset should be cleared after delete_group");
+    assert!(
+        store.fetch("grp", "t1", 0).is_none(),
+        "offset should be cleared after delete_group"
+    );
+    assert!(
+        store.fetch("grp", "t2", 0).is_none(),
+        "offset should be cleared after delete_group"
+    );
 }
 
 #[test]
@@ -86,7 +98,11 @@ fn fjord_partition_log_high_watermark_tracks_record_count() {
     let (base_offset, record_count) = partition.append(&view, Some(&raw)).unwrap();
     assert_eq!(base_offset, 0, "first append starts at offset 0");
     assert_eq!(record_count, 3, "3-record batch must report count 3");
-    assert_eq!(partition.high_watermark(), 3, "HWM must advance by record count");
+    assert_eq!(
+        partition.high_watermark(),
+        3,
+        "HWM must advance by record count"
+    );
 }
 
 #[test]
@@ -110,14 +126,21 @@ fn fjord_topic_registry_create_list_describe() {
 
     let mut topics = registry.topic_list();
     topics.sort();
-    assert_eq!(topics, vec![("events".to_string(), 3), ("orders".to_string(), 1)]);
+    assert_eq!(
+        topics,
+        vec![("events".to_string(), 3), ("orders".to_string(), 1)]
+    );
 
     assert_eq!(registry.topic_info("events"), Some(3));
     assert_eq!(registry.topic_info("orders"), Some(1));
     assert_eq!(registry.topic_info("no-such"), None);
 
     registry.deregister_topic("events");
-    assert_eq!(registry.topic_info("events"), None, "deregistered topic must be absent");
+    assert_eq!(
+        registry.topic_info("events"),
+        None,
+        "deregistered topic must be absent"
+    );
 }
 
 /// Synthetic leader assignment: all partitions initially owned by self.
@@ -174,7 +197,8 @@ fn fjord_cluster_view_not_leader_after_reassignment() {
     let registry = FjordTopicRegistry::new(1);
     registry.register_topic("routed-topic", 2);
 
-    let view = FjordClusterView::new_with_registry(1, "127.0.0.1", 9092, "test-cluster", registry.clone());
+    let view =
+        FjordClusterView::new_with_registry(1, "127.0.0.1", 9092, "test-cluster", registry.clone());
 
     // Before reassignment: self is leader for both partitions.
     assert!(
@@ -212,7 +236,11 @@ fn fjord_log_with_registry_create_delete_reflects_in_registry() {
     assert!(registry.topic_list().is_empty());
 
     log.create_topic("alpha", 2).expect("create alpha");
-    assert_eq!(registry.topic_info("alpha"), Some(2), "registry must reflect create");
+    assert_eq!(
+        registry.topic_info("alpha"),
+        Some(2),
+        "registry must reflect create"
+    );
     assert_eq!(registry.partition_owner("alpha", 0), Some(1));
     assert_eq!(registry.partition_owner("alpha", 1), Some(1));
 
@@ -220,7 +248,11 @@ fn fjord_log_with_registry_create_delete_reflects_in_registry() {
     assert_eq!(registry.topic_info("beta"), Some(1));
 
     log.delete_topic("alpha").expect("delete alpha");
-    assert_eq!(registry.topic_info("alpha"), None, "registry must reflect delete");
+    assert_eq!(
+        registry.topic_info("alpha"),
+        None,
+        "registry must reflect delete"
+    );
     assert_eq!(registry.topic_info("beta"), Some(1), "beta unaffected");
 }
 
@@ -242,12 +274,15 @@ fn fjord_cluster_view_routes_by_registry() {
 
     // Out-of-range partition on a known topic returns NotLeaderOrFollower.
     let err = view.partition_leader("known", 1);
-    assert!(err.is_err(), "partition 1 does not exist in a 1-partition topic");
+    assert!(
+        err.is_err(),
+        "partition 1 does not exist in a 1-partition topic"
+    );
 }
 
 fn build_three_record_batch() -> Vec<u8> {
-    use kafka_protocol::records::{Record, RecordBatchEncoder, RecordEncodeOptions};
     use bytes::BytesMut;
+    use kafka_protocol::records::{Record, RecordBatchEncoder, RecordEncodeOptions};
     let records: Vec<Record> = (0..3)
         .map(|i| Record {
             transactional: false,
@@ -268,7 +303,10 @@ fn build_three_record_batch() -> Vec<u8> {
     RecordBatchEncoder::encode(
         &mut buf,
         records.iter(),
-        &RecordEncodeOptions { version: 2, compression: kafka_protocol::records::Compression::None },
+        &RecordEncodeOptions {
+            version: 2,
+            compression: kafka_protocol::records::Compression::None,
+        },
     )
     .expect("encode");
     buf.to_vec()

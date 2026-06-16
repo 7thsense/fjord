@@ -22,7 +22,11 @@ use tracing::info;
 /// fjord broker configuration. Every flag has an env fallback so the same
 /// binary is driven from a Helm values file or a shell.
 #[derive(Parser, Debug)]
-#[command(name = "fjord", version, about = "Stateless Kafka-compatible broker over a coordinator + object storage")]
+#[command(
+    name = "fjord",
+    version,
+    about = "Stateless Kafka-compatible broker over a coordinator + object storage"
+)]
 struct Args {
     /// Bind host.
     #[arg(long, env = "FJORD_HOST", default_value = "0.0.0.0")]
@@ -96,9 +100,13 @@ fn parse_peer(s: &str) -> Result<BrokerInfo> {
         .rsplit_once(':')
         .with_context(|| format!("peer `{s}` must be id@host:port"))?;
     Ok(BrokerInfo {
-        node_id: id.parse().with_context(|| format!("peer `{s}`: bad node id"))?,
+        node_id: id
+            .parse()
+            .with_context(|| format!("peer `{s}`: bad node id"))?,
         host: host.to_string(),
-        port: port.parse().with_context(|| format!("peer `{s}`: bad port"))?,
+        port: port
+            .parse()
+            .with_context(|| format!("peer `{s}`: bad port"))?,
     })
 }
 
@@ -120,12 +128,30 @@ fn build_object_store(args: &Args) -> Result<Arc<dyn BlobStore>> {
             Ok(Arc::new(MemoryBlobStore::new()))
         }
         "s3" => {
-            let endpoint = args.s3_endpoint.as_deref().context("--s3-endpoint required for s3")?;
-            let bucket = args.s3_bucket.as_deref().context("--s3-bucket required for s3")?;
-            let ak = args.s3_access_key.as_deref().context("--s3-access-key required for s3")?;
-            let sk = args.s3_secret_key.as_deref().context("--s3-secret-key required for s3")?;
+            let endpoint = args
+                .s3_endpoint
+                .as_deref()
+                .context("--s3-endpoint required for s3")?;
+            let bucket = args
+                .s3_bucket
+                .as_deref()
+                .context("--s3-bucket required for s3")?;
+            let ak = args
+                .s3_access_key
+                .as_deref()
+                .context("--s3-access-key required for s3")?;
+            let sk = args
+                .s3_secret_key
+                .as_deref()
+                .context("--s3-secret-key required for s3")?;
             info!(%endpoint, %bucket, region = %args.s3_region, "object store: s3");
-            Ok(Arc::new(S3BlobStore::new(endpoint, &args.s3_region, bucket, ak, sk)))
+            Ok(Arc::new(S3BlobStore::new(
+                endpoint,
+                &args.s3_region,
+                bucket,
+                ak,
+                sk,
+            )))
         }
         other => bail!("unknown --object-store `{other}` (expected `memory` or `s3`)"),
     }
@@ -165,10 +191,13 @@ async fn main() -> Result<()> {
         Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coordinator)));
 
     // Cluster membership for the multi-broker ClusterView.
-    let advertised_host = args
-        .advertised_host
-        .clone()
-        .unwrap_or_else(|| if args.host == "0.0.0.0" { "127.0.0.1".to_string() } else { args.host.clone() });
+    let advertised_host = args.advertised_host.clone().unwrap_or_else(|| {
+        if args.host == "0.0.0.0" {
+            "127.0.0.1".to_string()
+        } else {
+            args.host.clone()
+        }
+    });
     let advertised_port = args.advertised_port.unwrap_or(args.port);
 
     let brokers: Vec<BrokerInfo> = if args.peers.is_empty() {
@@ -178,7 +207,10 @@ async fn main() -> Result<()> {
             port: advertised_port,
         }]
     } else {
-        args.peers.iter().map(|p| parse_peer(p)).collect::<Result<_>>()?
+        args.peers
+            .iter()
+            .map(|p| parse_peer(p))
+            .collect::<Result<_>>()?
     };
     if !brokers.iter().any(|b| b.node_id == args.broker_id) {
         bail!(

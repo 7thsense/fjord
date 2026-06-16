@@ -24,7 +24,8 @@ async fn coordinator_throughput_smoke() {
     let port = heimq::test_support::next_port();
     let port_str = port.to_string();
     let spec = format!("{topic}:1");
-    let config = heimq::config::Config::parse_from(["heimq", "--port", &port_str, "--create-topic", &spec]);
+    let config =
+        heimq::config::Config::parse_from(["heimq", "--port", &port_str, "--create-topic", &spec]);
     let coord: Arc<dyn CoordinatorStore> = Arc::new(MemoryCoordinator::new());
     // Keep a concrete handle to read the object (PUT) count afterward.
     let blob = Arc::new(MemoryBlobStore::new());
@@ -50,9 +51,11 @@ async fn coordinator_throughput_smoke() {
     let mut futs = Vec::with_capacity(n);
     for i in 0..n {
         let key = i.to_le_bytes();
-        futs.push(producer.send_result(
-            FutureRecord::to(topic).payload(&payload).key(&key[..]),
-        ).expect("enqueue"));
+        futs.push(
+            producer
+                .send_result(FutureRecord::to(topic).payload(&payload).key(&key[..]))
+                .expect("enqueue"),
+        );
     }
     for f in futs {
         f.await.expect("delivery channel").expect("delivered");
@@ -93,8 +96,17 @@ async fn coordinator_throughput_smoke() {
     );
 
     assert_eq!(consumed, n, "consumed all records");
-    assert!(produce_rate > 1000.0, "produce rate {produce_rate:.0} rec/s below floor");
-    assert!(consume_rate > 1000.0, "consume rate {consume_rate:.0} rec/s below floor");
+    assert!(
+        produce_rate > 1000.0,
+        "produce rate {produce_rate:.0} rec/s below floor"
+    );
+    assert!(
+        consume_rate > 1000.0,
+        "consume rate {consume_rate:.0} rec/s below floor"
+    );
     // Batching/multiplexing: far fewer objects than records (cost evidence).
-    assert!(objects < n / 5, "expected batching: {objects} objects for {n} records");
+    assert!(
+        objects < n / 5,
+        "expected batching: {objects} objects for {n} records"
+    );
 }

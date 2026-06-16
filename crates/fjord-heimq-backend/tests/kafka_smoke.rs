@@ -115,7 +115,10 @@ async fn coordinator_kafka_produce_consume_roundtrip() {
         .await
         .expect("blocking task");
 
-    assert_eq!(count, 5, "expected 5 records via real Kafka client, got {count}");
+    assert_eq!(
+        count, 5,
+        "expected 5 records via real Kafka client, got {count}"
+    );
 }
 
 /// An idempotent producer (`enable.idempotence=true`, which drives
@@ -170,7 +173,10 @@ async fn coordinator_kafka_idempotent_producer_no_duplicates() {
     })
     .await
     .expect("blocking");
-    assert_eq!(distinct, 20, "idempotent producer: expected 20 distinct records, got {distinct}");
+    assert_eq!(
+        distinct, 20,
+        "idempotent producer: expected 20 distinct records, got {distinct}"
+    );
 }
 
 /// Consume up to `n` records, committing each synchronously. Returns the count.
@@ -187,7 +193,9 @@ fn consume_and_commit(bootstrap: &str, topic: &str, group: &str, n: usize) -> us
     let mut count = 0;
     while count < n && std::time::Instant::now() < deadline {
         if let Some(Ok(msg)) = consumer.poll(Duration::from_millis(200)) {
-            consumer.commit_message(&msg, CommitMode::Sync).expect("commit");
+            consumer
+                .commit_message(&msg, CommitMode::Sync)
+                .expect("commit");
             count += 1;
         }
     }
@@ -234,14 +242,22 @@ async fn coordinator_kafka_offsets_survive_restart() {
     let resumed = tokio::task::spawn_blocking(move || consume_records(&bs2, topic, &g2, 6))
         .await
         .expect("blocking");
-    assert_eq!(resumed, 5, "same group resumes at committed offset (5 remaining), got {resumed}");
+    assert_eq!(
+        resumed, 5,
+        "same group resumes at committed offset (5 remaining), got {resumed}"
+    );
 
     // A fresh group sees all 10 (data persisted across restart).
     let bs3 = bootstrap.clone();
-    let fresh = tokio::task::spawn_blocking(move || consume_records(&bs3, topic, "coord-offsets-fresh", 10))
-        .await
-        .expect("blocking");
-    assert_eq!(fresh, 10, "fresh group sees all persisted records, got {fresh}");
+    let fresh = tokio::task::spawn_blocking(move || {
+        consume_records(&bs3, topic, "coord-offsets-fresh", 10)
+    })
+    .await
+    .expect("blocking");
+    assert_eq!(
+        fresh, 10,
+        "fresh group sees all persisted records, got {fresh}"
+    );
 }
 
 /// Multi-partition produce/consume: rdkafka spreads keyed records across 3
@@ -262,7 +278,10 @@ async fn coordinator_kafka_multi_partition_roundtrip() {
         tokio::task::spawn_blocking(move || consume_records(&bs, topic, "coord-multi-group", 30))
             .await
             .expect("blocking task");
-    assert_eq!(count, 30, "expected 30 records across 3 partitions, got {count}");
+    assert_eq!(
+        count, 30,
+        "expected 30 records across 3 partitions, got {count}"
+    );
 }
 
 /// Stateless-broker restart: produce to one server, drop it, then a NEW server
@@ -289,10 +308,12 @@ async fn coordinator_kafka_data_survives_server_restart() {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let bs = bootstrap.clone();
-    let count = tokio::task::spawn_blocking(move || {
-        consume_records(&bs, topic, "coord-restart-group", 5)
-    })
-    .await
-    .expect("blocking task");
-    assert_eq!(count, 5, "records must survive a broker restart (state in coordinator+store)");
+    let count =
+        tokio::task::spawn_blocking(move || consume_records(&bs, topic, "coord-restart-group", 5))
+            .await
+            .expect("blocking task");
+    assert_eq!(
+        count, 5,
+        "records must survive a broker restart (state in coordinator+store)"
+    );
 }

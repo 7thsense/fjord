@@ -12,15 +12,15 @@
 //! Requires a multi-thread tokio runtime (the block_in_place precondition).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
     AtomicAppendScope, BackendCapabilities, CommittedOffset, Durability, FetchWait, LogBackend,
-    OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode, TopicConfig,
-    TopicLog,
+    OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode,
+    TopicConfig, TopicLog,
 };
 use object_log::{ObjectKey, ObjectStore};
 use parking_lot::Mutex;
@@ -80,11 +80,20 @@ impl ObjectLogPartitionLog {
                     return 0;
                 }
                 let base_offset = i64::from_be_bytes([
-                    obj.value[0], obj.value[1], obj.value[2], obj.value[3],
-                    obj.value[4], obj.value[5], obj.value[6], obj.value[7],
+                    obj.value[0],
+                    obj.value[1],
+                    obj.value[2],
+                    obj.value[3],
+                    obj.value[4],
+                    obj.value[5],
+                    obj.value[6],
+                    obj.value[7],
                 ]);
                 let last_offset_delta = i32::from_be_bytes([
-                    obj.value[23], obj.value[24], obj.value[25], obj.value[26],
+                    obj.value[23],
+                    obj.value[24],
+                    obj.value[25],
+                    obj.value[26],
                 ]);
                 base_offset + last_offset_delta as i64 + 1
             })
@@ -106,9 +115,7 @@ impl ObjectLogPartitionLog {
         T: Send,
         E: Send,
     {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(f)
-        })
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(f))
     }
 }
 
@@ -294,7 +301,10 @@ impl TopicLog for ObjectLogTopicLog {
             .get(index as usize)
             .cloned()
             .map(|p| p as Arc<dyn PartitionLog>)
-            .ok_or_else(|| HeimqError::PartitionNotFound { topic: self.name.clone(), partition: index })
+            .ok_or_else(|| HeimqError::PartitionNotFound {
+                topic: self.name.clone(),
+                partition: index,
+            })
     }
 }
 
@@ -358,9 +368,16 @@ impl LogBackend for ObjectLogFjordLog {
     fn create_topic(&self, name: &str, num_partitions: i32) -> Result<Arc<dyn TopicLog>> {
         let mut topics = self.topics.lock();
         if topics.contains_key(name) {
-            return Err(HeimqError::Protocol(format!("topic '{}' already exists", name)));
+            return Err(HeimqError::Protocol(format!(
+                "topic '{}' already exists",
+                name
+            )));
         }
-        let t = Arc::new(ObjectLogTopicLog::new(self.store.clone(), name, num_partitions));
+        let t = Arc::new(ObjectLogTopicLog::new(
+            self.store.clone(),
+            name,
+            num_partitions,
+        ));
         topics.insert(name.to_string(), t.clone());
         Ok(t as Arc<dyn TopicLog>)
     }
@@ -389,7 +406,11 @@ impl LogBackend for ObjectLogFjordLog {
         if let Some(t) = topics.get(name) {
             return t.clone() as Arc<dyn TopicLog>;
         }
-        let t = Arc::new(ObjectLogTopicLog::new(self.store.clone(), name, num_partitions));
+        let t = Arc::new(ObjectLogTopicLog::new(
+            self.store.clone(),
+            name,
+            num_partitions,
+        ));
         topics.insert(name.to_string(), t.clone());
         t as Arc<dyn TopicLog>
     }
@@ -442,8 +463,9 @@ impl LogBackend for ObjectLogFjordLog {
         let (data, hwm) = p.read(offset, max_bytes as usize, FetchWait::Immediate)?;
         // Validate CRC of each batch before returning. Fails closed on corruption.
         if !data.is_empty() {
-            RecordBatchView::from_bytes(&data)
-                .map_err(|e| HeimqError::Protocol(format!("corrupted segment at offset {}: {}", offset, e)))?;
+            RecordBatchView::from_bytes(&data).map_err(|e| {
+                HeimqError::Protocol(format!("corrupted segment at offset {}: {}", offset, e))
+            })?;
         }
         Ok((data, hwm))
     }
@@ -533,7 +555,12 @@ impl OffsetStore for ObjectLogOffsetStore {
         metadata: Option<String>,
     ) -> Result<()> {
         let key = Self::offset_key(group_id, topic, partition);
-        let record = OffsetRecord { offset, leader_epoch, metadata, commit_timestamp: 0 };
+        let record = OffsetRecord {
+            offset,
+            leader_epoch,
+            metadata,
+            commit_timestamp: 0,
+        };
         let json = serde_json::to_vec(&record)
             .map_err(|e| HeimqError::Protocol(format!("offset serialize: {}", e)))?;
         let store = self.store.clone();
@@ -551,10 +578,7 @@ impl OffsetStore for ObjectLogOffsetStore {
     fn fetch(&self, group_id: &str, topic: &str, partition: i32) -> Option<CommittedOffset> {
         let key = Self::offset_key(group_id, topic, partition);
         let store = self.store.clone();
-        let obj = Self::sync_run(async move {
-            store.get(&key).await
-        })
-        .ok()??;
+        let obj = Self::sync_run(async move { store.get(&key).await }).ok()??;
         let record: OffsetRecord = serde_json::from_slice(&obj.value).ok()?;
         Some(CommittedOffset {
             offset: record.offset,
@@ -567,13 +591,15 @@ impl OffsetStore for ObjectLogOffsetStore {
     fn fetch_all_for_group(&self, group_id: &str) -> HashMap<(String, i32), CommittedOffset> {
         let prefix = Self::group_prefix(group_id);
         let store = self.store.clone();
-        let keys = Self::sync_run(async move { store.list(&prefix).await })
-            .unwrap_or_default();
+        let keys = Self::sync_run(async move { store.list(&prefix).await }).unwrap_or_default();
 
         let mut result = HashMap::new();
         for key in keys {
             // Key format: o/{group_id}/{topic}/{partition:010}
-            let remainder = key.as_str().strip_prefix(&format!("o/{}/", group_id)).unwrap_or("");
+            let remainder = key
+                .as_str()
+                .strip_prefix(&format!("o/{}/", group_id))
+                .unwrap_or("");
             let parts: Vec<&str> = remainder.rsplitn(2, '/').collect();
             if parts.len() != 2 {
                 continue;
@@ -594,8 +620,7 @@ impl OffsetStore for ObjectLogOffsetStore {
     fn delete_group(&self, group_id: &str) {
         let prefix = Self::group_prefix(group_id);
         let store = self.store.clone();
-        let keys = Self::sync_run(async move { store.list(&prefix).await })
-            .unwrap_or_default();
+        let keys = Self::sync_run(async move { store.list(&prefix).await }).unwrap_or_default();
         for key in keys {
             let store2 = self.store.clone();
             let _ = Self::sync_run(async move { store2.delete(&key).await });

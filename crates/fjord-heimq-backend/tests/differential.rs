@@ -55,19 +55,37 @@ impl KafkaContainer {
         // Single-node KRaft (the apache/kafka image otherwise defaults to ZK mode).
         let out = Command::new("docker")
             .args([
-                "run", "-d", "--rm", "--name", &name,
-                "--network", NETWORK, "--ip", &ip,
-                "-e", "KAFKA_NODE_ID=1",
-                "-e", "KAFKA_PROCESS_ROLES=broker,controller",
-                "-e", "KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093",
-                "-e", &adv,
-                "-e", "KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER",
-                "-e", "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT",
-                "-e", "KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093",
-                "-e", "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
-                "-e", "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1",
-                "-e", "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1",
-                "-e", "KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0",
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                &name,
+                "--network",
+                NETWORK,
+                "--ip",
+                &ip,
+                "-e",
+                "KAFKA_NODE_ID=1",
+                "-e",
+                "KAFKA_PROCESS_ROLES=broker,controller",
+                "-e",
+                "KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093",
+                "-e",
+                &adv,
+                "-e",
+                "KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER",
+                "-e",
+                "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT",
+                "-e",
+                "KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093",
+                "-e",
+                "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
+                "-e",
+                "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1",
+                "-e",
+                "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1",
+                "-e",
+                "KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0",
                 "apache/kafka:3.8.1",
             ])
             .output()
@@ -102,14 +120,27 @@ impl KafkaContainer {
             std::thread::sleep(Duration::from_millis(500));
         }
         let ps = Command::new("docker")
-            .args(["ps", "-a", "--filter", &format!("name={}", self.name), "--format", "{{.Status}} {{.Ports}}"])
+            .args([
+                "ps",
+                "-a",
+                "--filter",
+                &format!("name={}", self.name),
+                "--format",
+                "{{.Status}} {{.Ports}}",
+            ])
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
             .unwrap_or_default();
         let logs = Command::new("docker")
             .args(["logs", "--tail", "20", &self.name])
             .output()
-            .map(|o| format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
+            .map(|o| {
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                )
+            })
             .unwrap_or_default();
         panic!(
             "kafka container {} not ready within 90s\n--- docker ps -a ---\n{ps}\n--- docker logs ---\n{logs}",
@@ -120,7 +151,9 @@ impl KafkaContainer {
 
 impl Drop for KafkaContainer {
     fn drop(&mut self) {
-        let _ = Command::new("docker").args(["rm", "-f", &self.name]).output();
+        let _ = Command::new("docker")
+            .args(["rm", "-f", &self.name])
+            .output();
     }
 }
 
@@ -129,7 +162,8 @@ fn start_fjord(topic: &str, partitions: i32) -> (Server, String) {
     let port = heimq::test_support::next_port();
     let port_str = port.to_string();
     let spec = format!("{topic}:{partitions}");
-    let config = heimq::config::Config::parse_from(["heimq", "--port", &port_str, "--create-topic", &spec]);
+    let config =
+        heimq::config::Config::parse_from(["heimq", "--port", &port_str, "--create-topic", &spec]);
     let coord: Arc<dyn CoordinatorStore> = Arc::new(MemoryCoordinator::new());
     let blob: Arc<dyn BlobStore> = Arc::new(MemoryBlobStore::new());
     let backend = Arc::new(CoordinatorLogBackend::new(Arc::clone(&coord), blob));
@@ -160,7 +194,12 @@ async fn produce(bootstrap: &str, topic: &str, n: usize) {
 
 /// Consume `n` records from a single partition and return them ordered by
 /// offset as `(offset, key, value)`.
-fn consume_ordered(bootstrap: &str, topic: &str, group: &str, n: usize) -> Vec<(i64, Vec<u8>, Vec<u8>)> {
+fn consume_ordered(
+    bootstrap: &str,
+    topic: &str,
+    group: &str,
+    n: usize,
+) -> Vec<(i64, Vec<u8>, Vec<u8>)> {
     let consumer: BaseConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap)
         .set("group.id", group)
@@ -279,7 +318,12 @@ async fn differential_single_partition_matches_real_kafka() {
             .await
             .expect("blocking");
 
-    assert_eq!(kafka_seq.len(), n, "real Kafka produced {} of {n}", kafka_seq.len());
+    assert_eq!(
+        kafka_seq.len(),
+        n,
+        "real Kafka produced {} of {n}",
+        kafka_seq.len()
+    );
     assert_eq!(
         fjord_seq, kafka_seq,
         "fjord's (offset,key,value) sequence must match real Apache Kafka exactly"

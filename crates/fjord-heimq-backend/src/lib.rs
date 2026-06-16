@@ -21,8 +21,8 @@ use fjord_log::BlobStore;
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
     AtomicAppendScope, BackendCapabilities, CommittedOffset, Durability, FetchWait, LogBackend,
-    OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode, TopicConfig,
-    TopicLog,
+    OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode,
+    TopicConfig, TopicLog,
 };
 use parking_lot::{Condvar, Mutex};
 
@@ -44,7 +44,11 @@ pub struct FlushConfig {
 
 impl Default for FlushConfig {
     fn default() -> Self {
-        Self { timeout: Duration::ZERO, max_bytes: 8 * 1024 * 1024, max_batches: 10_000 }
+        Self {
+            timeout: Duration::ZERO,
+            max_bytes: 8 * 1024 * 1024,
+            max_batches: 10_000,
+        }
     }
 }
 
@@ -82,10 +86,15 @@ impl Flusher {
             if st.queue.is_empty() {
                 st.oldest = Some(Instant::now());
             }
-            st.queue.push(Pending { meta, bytes, resp: tx });
+            st.queue.push(Pending {
+                meta,
+                bytes,
+                resp: tx,
+            });
         }
         self.cv.notify_one();
-        rx.recv().unwrap_or_else(|_| Err(HeimqError::Protocol("flusher stopped".into())))
+        rx.recv()
+            .unwrap_or_else(|_| Err(HeimqError::Protocol("flusher stopped".into())))
     }
 
     /// One flush iteration: either flush a due batch, or wait for one.
@@ -102,8 +111,11 @@ impl Flusher {
                 || bytes >= self.cfg.max_bytes
                 || st.queue.len() >= self.cfg.max_batches;
             if !due {
-                let remaining =
-                    self.cfg.timeout.saturating_sub(waited).max(Duration::from_micros(50));
+                let remaining = self
+                    .cfg
+                    .timeout
+                    .saturating_sub(waited)
+                    .max(Duration::from_micros(50));
                 self.cv.wait_for(&mut st, remaining);
                 return;
             }
@@ -135,7 +147,9 @@ impl Flusher {
 
         if let Err(e) = self.blob.put(&object_id, object) {
             for p in batch {
-                let _ = p.resp.send(Err(HeimqError::Protocol(format!("blob put: {e}"))));
+                let _ = p
+                    .resp
+                    .send(Err(HeimqError::Protocol(format!("blob put: {e}"))));
             }
             return;
         }
@@ -382,7 +396,9 @@ impl LogBackend for CoordinatorLogBackend {
     fn create_topic(&self, name: &str, num_partitions: i32) -> Result<Arc<dyn TopicLog>> {
         let mut topics = self.topics.lock();
         if topics.contains_key(name) {
-            return Err(HeimqError::Protocol(format!("topic '{name}' already exists")));
+            return Err(HeimqError::Protocol(format!(
+                "topic '{name}' already exists"
+            )));
         }
         // A shared coordinator may already hold the topic (e.g. a broker
         // restart, or another stateless broker created it). That is not an
@@ -455,7 +471,13 @@ impl LogBackend for CoordinatorLogBackend {
         topic.partition(partition)?.append(&view, Some(records))
     }
 
-    fn fetch(&self, topic_name: &str, partition: i32, offset: i64, max_bytes: i32) -> Result<(Vec<u8>, i64)> {
+    fn fetch(
+        &self,
+        topic_name: &str,
+        partition: i32,
+        offset: i64,
+        max_bytes: i32,
+    ) -> Result<(Vec<u8>, i64)> {
         let topic = self
             .topic(topic_name)
             .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
@@ -465,11 +487,15 @@ impl LogBackend for CoordinatorLogBackend {
     }
 
     fn high_watermark(&self, topic_name: &str, partition: i32) -> Result<i64> {
-        self.coordinator.high_watermark(topic_name, partition).map_err(coord_err)
+        self.coordinator
+            .high_watermark(topic_name, partition)
+            .map_err(coord_err)
     }
 
     fn log_start_offset(&self, topic_name: &str, partition: i32) -> Result<i64> {
-        self.coordinator.log_start_offset(topic_name, partition).map_err(coord_err)
+        self.coordinator
+            .log_start_offset(topic_name, partition)
+            .map_err(coord_err)
     }
 }
 
@@ -570,7 +596,10 @@ mod tests {
         assert_eq!(be.list_topics(), vec!["t".to_string()]);
         assert_eq!(be.get_all_topic_metadata(), vec![("t".to_string(), 3)]);
         assert_eq!(be.topic("t").unwrap().num_partitions(), 3);
-        assert!(be.create_topic("t", 3).is_err(), "duplicate create rejected");
+        assert!(
+            be.create_topic("t", 3).is_err(),
+            "duplicate create rejected"
+        );
         assert!(be.topic("missing").is_none());
     }
 
@@ -587,11 +616,11 @@ mod tests {
 
     #[test]
     fn append_fetch_round_trip_through_heimq_traits() {
+        use bytes::{Bytes, BytesMut};
         use kafka_protocol::records::{
-            Compression, Record, RecordBatchEncoder, RecordBatchDecoder, RecordEncodeOptions,
+            Compression, Record, RecordBatchDecoder, RecordBatchEncoder, RecordEncodeOptions,
             TimestampType,
         };
-        use bytes::{Bytes, BytesMut};
 
         let (_c, be) = backend();
         be.create_topic("t", 1).unwrap();
@@ -615,7 +644,10 @@ mod tests {
         RecordBatchEncoder::encode(
             &mut buf,
             std::iter::once(&rec),
-            &RecordEncodeOptions { version: 2, compression: Compression::None },
+            &RecordEncodeOptions {
+                version: 2,
+                compression: Compression::None,
+            },
         )
         .expect("encode batch");
         let raw = buf.to_vec();
@@ -632,7 +664,10 @@ mod tests {
         let mut b = Bytes::from(bytes);
         let decoded = RecordBatchDecoder::decode(&mut b).expect("decode batch");
         assert_eq!(decoded.records.len(), 1);
-        assert_eq!(decoded.records[0].value.as_deref(), Some(&b"hello-fjord"[..]));
+        assert_eq!(
+            decoded.records[0].value.as_deref(),
+            Some(&b"hello-fjord"[..])
+        );
         // base_offset was patched from the coordinator index.
         assert_eq!(decoded.records[0].offset, 0);
     }

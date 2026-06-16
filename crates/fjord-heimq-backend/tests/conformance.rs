@@ -51,7 +51,9 @@ fn coordinator_partition_log_conformance() {
     let make_log = || -> Arc<dyn PartitionLog> {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let backend = fresh_backend();
-        let topic = backend.create_topic(&format!("conf-{n}"), 1).expect("create topic");
+        let topic = backend
+            .create_topic(&format!("conf-{n}"), 1)
+            .expect("create topic");
         topic.partition(0).expect("partition 0")
     };
     suites::partition_log::run_all(&make_log);

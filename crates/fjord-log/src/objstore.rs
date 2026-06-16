@@ -82,12 +82,15 @@ mod tests {
         let w = WritePath::new(Arc::clone(&coord), Arc::clone(&blob));
         let r = ReadPath::new(Arc::clone(&coord), Arc::clone(&blob));
 
-        w.produce(&[pb("t", 0, b"alpha", 1), pb("t", 1, b"beta", 2)]).unwrap();
+        w.produce(&[pb("t", 0, b"alpha", 1), pb("t", 1, b"beta", 2)])
+            .unwrap();
         w.produce(&[pb("t", 0, b"gamma", 1)]).unwrap();
 
         let p0 = r.fetch("t", 0, 0).unwrap();
-        assert_eq!(p0.iter().map(|b| b.payload.clone()).collect::<Vec<_>>(),
-                   vec![b"alpha".to_vec(), b"gamma".to_vec()]);
+        assert_eq!(
+            p0.iter().map(|b| b.payload.clone()).collect::<Vec<_>>(),
+            vec![b"alpha".to_vec(), b"gamma".to_vec()]
+        );
         assert_eq!(p0[0].base_offset, 0);
         assert_eq!(p0[1].base_offset, 1);
         let p1 = r.fetch("t", 1, 0).unwrap();
@@ -97,16 +100,18 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn round_trip_over_memory_object_store() {
-        let store: Arc<dyn BlobStore> =
-            Arc::new(ObjectLogBlobStore::new(Arc::new(MemoryObjectStore::default())));
+        let store: Arc<dyn BlobStore> = Arc::new(ObjectLogBlobStore::new(Arc::new(
+            MemoryObjectStore::default(),
+        )));
         round_trip(store);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn round_trip_over_local_object_store() {
         let dir = tempfile::tempdir().unwrap();
-        let store: Arc<dyn BlobStore> =
-            Arc::new(ObjectLogBlobStore::new(Arc::new(LocalObjectStore::new(dir.path()))));
+        let store: Arc<dyn BlobStore> = Arc::new(ObjectLogBlobStore::new(Arc::new(
+            LocalObjectStore::new(dir.path()),
+        )));
         round_trip(store);
     }
 }

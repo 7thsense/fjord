@@ -35,7 +35,10 @@ use parking_lot::Mutex;
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self, n: u64) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 33) % n.max(1)
     }
 }
@@ -85,9 +88,15 @@ struct FaultyCoordinator {
 }
 
 impl CoordinatorStore for FaultyCoordinator {
-    fn commit_object(&self, object_id: &str, batches: &[BatchMeta]) -> CoordResult<Vec<CommitOutcome>> {
+    fn commit_object(
+        &self,
+        object_id: &str,
+        batches: &[BatchMeta],
+    ) -> CoordResult<Vec<CommitOutcome>> {
         if self.faults.roll(self.faults.commit_fail) {
-            return Err(CoordinatorError::Backend("injected pre-commit failure".into()));
+            return Err(CoordinatorError::Backend(
+                "injected pre-commit failure".into(),
+            ));
         }
         let out = self.inner.commit_object(object_id, batches)?;
         if self.faults.roll(self.faults.ack_loss) {
@@ -180,15 +189,19 @@ fn run_sim(seed: u64) {
     // mixes (including some with zero of a given fault).
     let faults = Arc::new(Faults {
         rng: Mutex::new(Lcg(seed.wrapping_mul(2654435761).wrapping_add(1))),
-        put_fail: 10 + (seed % 30),     // 10–39%
-        commit_fail: 10 + (seed % 25),  // 10–34%
-        ack_loss: 5 + (seed % 20),      // 5–24%
+        put_fail: 10 + (seed % 30),    // 10–39%
+        commit_fail: 10 + (seed % 25), // 10–34%
+        ack_loss: 5 + (seed % 20),     // 5–24%
     });
 
-    let fcoord: Arc<dyn CoordinatorStore> =
-        Arc::new(FaultyCoordinator { inner: coord.clone(), faults: faults.clone() });
-    let fblob: Arc<dyn BlobStore> =
-        Arc::new(FaultyBlobStore { inner: inner_blob.clone(), faults: faults.clone() });
+    let fcoord: Arc<dyn CoordinatorStore> = Arc::new(FaultyCoordinator {
+        inner: coord.clone(),
+        faults: faults.clone(),
+    });
+    let fblob: Arc<dyn BlobStore> = Arc::new(FaultyBlobStore {
+        inner: inner_blob.clone(),
+        faults: faults.clone(),
+    });
     let wp = WritePath::new(fcoord.clone(), fblob.clone());
 
     // Per-producer (= per-partition) next sequence, and the set of payload tags
@@ -223,7 +236,10 @@ fn run_sim(seed: u64) {
             match wp.produce(std::slice::from_ref(&batch)) {
                 Ok(outcomes) => {
                     assert!(
-                        matches!(outcomes[0], CommitOutcome::Assigned { .. } | CommitOutcome::Duplicate { .. }),
+                        matches!(
+                            outcomes[0],
+                            CommitOutcome::Assigned { .. } | CommitOutcome::Duplicate { .. }
+                        ),
                         "seed {seed}: unexpected outcome {:?}",
                         outcomes[0]
                     );
@@ -233,7 +249,10 @@ fn run_sim(seed: u64) {
                 Err(_) => continue, // injected fault; client retries with same seq
             }
         }
-        assert!(acked, "seed {seed}: producer p{pid} seq {seq} never acked in {MAX_RETRY} retries");
+        assert!(
+            acked,
+            "seed {seed}: producer p{pid} seq {seq} never acked in {MAX_RETRY} retries"
+        );
         // Committed exactly once at this base_sequence.
         expected[partition as usize].insert(seq, tag);
         next_seq[pidx] += count;
@@ -259,23 +278,34 @@ fn verify(
     let rp = ReadPath::new(read_coord, read_blob);
 
     for p in 0..PARTS {
-        let batches = rp.fetch("t", p, 0).expect("fetch must succeed (no torn index)");
+        let batches = rp
+            .fetch("t", p, 0)
+            .expect("fetch must succeed (no torn index)");
 
         // Gapless, ordered: offsets tile [0, hw).
         let mut next = 0i64;
         let mut seen_tags: HashMap<String, i32> = HashMap::new();
         for b in &batches {
-            assert_eq!(b.base_offset, next, "seed {seed}: gap/overlap on partition {p}");
+            assert_eq!(
+                b.base_offset, next,
+                "seed {seed}: gap/overlap on partition {p}"
+            );
             next += b.record_count as i64;
             let tag = String::from_utf8(b.payload.clone()).unwrap();
             *seen_tags.entry(tag).or_insert(0) += 1;
         }
         let hw = coord.high_watermark("t", p).unwrap();
-        assert_eq!(next, hw, "seed {seed}: fetched coverage != HW on partition {p}");
+        assert_eq!(
+            next, hw,
+            "seed {seed}: fetched coverage != HW on partition {p}"
+        );
 
         // No duplication: every committed tag appears exactly once.
         for (tag, n) in &seen_tags {
-            assert_eq!(*n, 1, "seed {seed}: tag {tag} appears {n} times on partition {p} (duplication)");
+            assert_eq!(
+                *n, 1,
+                "seed {seed}: tag {tag} appears {n} times on partition {p} (duplication)"
+            );
         }
 
         // No lost acked writes: every expected tag is present.
@@ -288,7 +318,8 @@ fn verify(
 
         // No phantom reads: every present tag was expected. (An ack-lost-then-
         // retried record is in `expected` because the client eventually acked it.)
-        let expected_tags: std::collections::HashSet<&String> = expected[p as usize].values().collect();
+        let expected_tags: std::collections::HashSet<&String> =
+            expected[p as usize].values().collect();
         for tag in seen_tags.keys() {
             assert!(
                 expected_tags.contains(tag),

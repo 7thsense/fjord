@@ -46,7 +46,9 @@ impl Cluster {
         let blob: Arc<dyn BlobStore> = Arc::new(MemoryBlobStore::new());
 
         // Assign a distinct port per broker and build the shared membership.
-        let ports: Vec<u16> = (0..n_brokers).map(|_| heimq::test_support::next_port()).collect();
+        let ports: Vec<u16> = (0..n_brokers)
+            .map(|_| heimq::test_support::next_port())
+            .collect();
         let brokers: Vec<BrokerInfo> = (0..n_brokers)
             .map(|i| BrokerInfo {
                 node_id: i,
@@ -74,7 +76,10 @@ impl Cluster {
                 "--create-topic",
                 &spec,
             ]);
-            let backend = Arc::new(CoordinatorLogBackend::new(Arc::clone(&coord), Arc::clone(&blob)));
+            let backend = Arc::new(CoordinatorLogBackend::new(
+                Arc::clone(&coord),
+                Arc::clone(&blob),
+            ));
             let offsets: Arc<dyn heimq_broker::storage::OffsetStore> =
                 Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coord)));
             let cluster_view = Arc::new(FjordMultiBrokerClusterView::new(i, membership.clone()));
@@ -94,7 +99,12 @@ impl Cluster {
         // Let every broker bind + start accepting.
         tokio::time::sleep(Duration::from_millis(400)).await;
 
-        Self { coord, backends, bootstraps, membership }
+        Self {
+            coord,
+            backends,
+            bootstraps,
+            membership,
+        }
     }
 
     /// Comma-separated bootstrap list spanning all brokers.
@@ -152,11 +162,10 @@ async fn run_case(n_brokers: i32, partitions: i32, records: usize) {
 
     let bs = bootstrap.clone();
     let t = topic.clone();
-    let got = tokio::task::spawn_blocking(move || {
-        consume_count(&bs, &t, &format!("g-{t}"), records)
-    })
-    .await
-    .expect("consume task");
+    let got =
+        tokio::task::spawn_blocking(move || consume_count(&bs, &t, &format!("g-{t}"), records))
+            .await
+            .expect("consume task");
 
     assert_eq!(
         got, records,
@@ -179,7 +188,10 @@ async fn run_case(n_brokers: i32, partitions: i32, records: usize) {
         );
         total += hwms[0];
     }
-    assert_eq!(total as usize, records, "sum of partition watermarks must equal produced count");
+    assert_eq!(
+        total as usize, records,
+        "sum of partition watermarks must equal produced count"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
@@ -231,7 +243,10 @@ async fn multi_broker_metadata_distributes_leaders() {
     .await
     .expect("metadata task");
 
-    assert_eq!(broker_count, n_brokers as usize, "metadata must advertise all brokers");
+    assert_eq!(
+        broker_count, n_brokers as usize,
+        "metadata must advertise all brokers"
+    );
     assert!(
         distinct_leaders > 1,
         "partition leadership must be distributed across brokers, got {distinct_leaders} distinct leader(s)"
@@ -266,7 +281,10 @@ async fn any_broker_serves_any_partition() {
         let (leader_bytes, _) = cluster.backends[leader_node as usize]
             .fetch(topic, p, 0, max_bytes)
             .expect("leader fetch");
-        assert!(!leader_bytes.is_empty(), "leader must serve non-empty partition {p}");
+        assert!(
+            !leader_bytes.is_empty(),
+            "leader must serve non-empty partition {p}"
+        );
 
         // Every NON-leader broker must serve byte-identical data for the same
         // partition — proving it is not gated on leadership.
@@ -274,8 +292,13 @@ async fn any_broker_serves_any_partition() {
             if node as i32 == leader_node {
                 continue;
             }
-            let (bytes, broker_hwm) = backend.fetch(topic, p, 0, max_bytes).expect("non-leader fetch");
-            assert_eq!(broker_hwm, hwm, "broker {node} hwm mismatch for {topic}-{p}");
+            let (bytes, broker_hwm) = backend
+                .fetch(topic, p, 0, max_bytes)
+                .expect("non-leader fetch");
+            assert_eq!(
+                broker_hwm, hwm,
+                "broker {node} hwm mismatch for {topic}-{p}"
+            );
             assert_eq!(
                 bytes, leader_bytes,
                 "non-leader broker {node} served different bytes than leader for {topic}-{p}"

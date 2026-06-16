@@ -109,11 +109,9 @@ async fn object_log_kafka_produce_consume_roundtrip() {
     produce_records(&bootstrap, topic, 5).await;
 
     let bs = bootstrap.clone();
-    let count = tokio::task::spawn_blocking(move || {
-        consume_records(&bs, topic, "smoke-group", 5)
-    })
-    .await
-    .expect("blocking task");
+    let count = tokio::task::spawn_blocking(move || consume_records(&bs, topic, "smoke-group", 5))
+        .await
+        .expect("blocking task");
 
     assert_eq!(count, 5, "expected 5 records, got {count}");
 }
@@ -141,7 +139,10 @@ async fn object_log_kafka_high_watermark_advances() {
         .fetch_metadata(Some(topic), Duration::from_secs(10))
         .expect("metadata");
     assert_eq!(meta.topics().len(), 1);
-    assert!(!meta.topics()[0].partitions().is_empty(), "topic must have partitions");
+    assert!(
+        !meta.topics()[0].partitions().is_empty(),
+        "topic must have partitions"
+    );
 }
 
 /// Produce/fetch throughput smoke — measures records/sec and reports it.
@@ -175,7 +176,9 @@ async fn object_log_kafka_throughput_smoke() {
     let mut futs = Vec::with_capacity(N);
     for i in 0..N {
         let fut = producer.send(
-            FutureRecord::to(topic).payload(&payload).key(keys[i].as_bytes()),
+            FutureRecord::to(topic)
+                .payload(&payload)
+                .key(keys[i].as_bytes()),
             Duration::from_secs(10),
         );
         futs.push(fut);
@@ -249,7 +252,9 @@ async fn object_log_consumer_group_offset_survives_restart() {
             let deadline = std::time::Instant::now() + Duration::from_secs(15);
             while count < 5 && std::time::Instant::now() < deadline {
                 if let Some(Ok(msg)) = consumer.poll(Duration::from_millis(200)) {
-                    consumer.store_offset_from_message(&msg).expect("store offset");
+                    consumer
+                        .store_offset_from_message(&msg)
+                        .expect("store offset");
                     count += 1;
                 }
             }
@@ -329,8 +334,14 @@ async fn object_log_kafka_headers_roundtrip() {
         .expect("producer");
 
     let headers = OwnedHeaders::new()
-        .insert(rdkafka::message::Header { key: "x-trace-id", value: Some("abc123") })
-        .insert(rdkafka::message::Header { key: "x-env", value: Some("test") });
+        .insert(rdkafka::message::Header {
+            key: "x-trace-id",
+            value: Some("abc123"),
+        })
+        .insert(rdkafka::message::Header {
+            key: "x-env",
+            value: Some("test"),
+        });
 
     producer
         .send(
@@ -378,7 +389,11 @@ async fn object_log_kafka_headers_roundtrip() {
     .expect("blocking");
 
     let (trace_id, env) = result.expect("timed out waiting for message with headers");
-    assert_eq!(trace_id, Some("abc123".into()), "x-trace-id header must round-trip");
+    assert_eq!(
+        trace_id,
+        Some("abc123".into()),
+        "x-trace-id header must round-trip"
+    );
     assert_eq!(env, Some("test".into()), "x-env header must round-trip");
 }
 
@@ -422,7 +437,9 @@ async fn object_log_kafka_compressed_roundtrip() {
     for (i, payload) in payloads.iter().enumerate() {
         producer
             .send(
-                FutureRecord::to(topic).payload(payload.as_bytes()).key(format!("k{i}").as_bytes()),
+                FutureRecord::to(topic)
+                    .payload(payload.as_bytes())
+                    .key(format!("k{i}").as_bytes()),
                 Duration::from_secs(10),
             )
             .await
@@ -436,7 +453,10 @@ async fn object_log_kafka_compressed_roundtrip() {
     .await
     .expect("blocking");
 
-    assert_eq!(count, N, "all {N} zstd-compressed records must be fetchable");
+    assert_eq!(
+        count, N,
+        "all {N} zstd-compressed records must be fetchable"
+    );
 }
 
 /// Two consumers in the same group drain a 4-partition topic without gaps or duplicates.
@@ -472,7 +492,9 @@ async fn object_log_kafka_multi_consumer_group_delivery() {
         let value = format!("val-{i}");
         producer
             .send(
-                FutureRecord::to(topic).payload(value.as_bytes()).key(key.as_bytes()),
+                FutureRecord::to(topic)
+                    .payload(value.as_bytes())
+                    .key(key.as_bytes()),
                 Duration::from_secs(10),
             )
             .await

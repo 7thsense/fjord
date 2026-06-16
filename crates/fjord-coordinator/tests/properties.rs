@@ -49,17 +49,37 @@ fn commit_object_is_atomic_on_poison_batch() {
     // idempotent batch on partition 0 (seq 5 — a gap; expected 2).
     let good = nonidem(1, 3);
     let r = c.commit_object("o1", &[good.clone(), idem(0, 5, 1)]);
-    assert!(matches!(r, Err(CoordinatorError::OutOfOrderSequence { .. })), "expected poison rejection, got {r:?}");
+    assert!(
+        matches!(r, Err(CoordinatorError::OutOfOrderSequence { .. })),
+        "expected poison rejection, got {r:?}"
+    );
 
     // The innocent batch must NOT have committed: partition 1 HW unchanged.
-    assert_eq!(c.high_watermark("t", 1).unwrap(), 0, "innocent batch partially committed");
-    assert_eq!(c.high_watermark("t", 0).unwrap(), 2, "poison batch leaked state");
-    assert!(c.index_lookup("t", 1, 0).unwrap().is_empty(), "innocent index entry leaked");
+    assert_eq!(
+        c.high_watermark("t", 1).unwrap(),
+        0,
+        "innocent batch partially committed"
+    );
+    assert_eq!(
+        c.high_watermark("t", 0).unwrap(),
+        2,
+        "poison batch leaked state"
+    );
+    assert!(
+        c.index_lookup("t", 1, 0).unwrap().is_empty(),
+        "innocent index entry leaked"
+    );
 
     // Re-committing the innocent batch alone succeeds at offset 0 (it was never
     // assigned by the failed multiplex).
     let r2 = c.commit_object("o2", &[good]).unwrap();
-    assert_eq!(r2[0], CommitOutcome::Assigned { base_offset: 0, record_count: 3 });
+    assert_eq!(
+        r2[0],
+        CommitOutcome::Assigned {
+            base_offset: 0,
+            record_count: 3
+        }
+    );
 }
 
 const PARTS: i32 = 4;

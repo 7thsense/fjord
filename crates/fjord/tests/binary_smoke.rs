@@ -60,7 +60,10 @@ impl Broker {
             if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "fjord binary did not bind within 20s");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fjord binary did not bind within 20s"
+            );
             std::thread::sleep(Duration::from_millis(150));
         }
         Self { child, port }
@@ -92,7 +95,9 @@ async fn binary_boots_and_serves_produce_consume() {
     for i in 0..10 {
         producer
             .send(
-                FutureRecord::to(topic).payload(format!("v{i}").as_bytes()).key(format!("k{i}").as_bytes()),
+                FutureRecord::to(topic)
+                    .payload(format!("v{i}").as_bytes())
+                    .key(format!("k{i}").as_bytes()),
                 Duration::from_secs(10),
             )
             .await
@@ -122,7 +127,10 @@ async fn binary_boots_and_serves_produce_consume() {
     .await
     .expect("consume task");
 
-    assert_eq!(count, 10, "expected 10 records back through the fjord binary, got {count}");
+    assert_eq!(
+        count, 10,
+        "expected 10 records back through the fjord binary, got {count}"
+    );
 }
 
 /// Same end-to-end path but with the **Postgres coordinator** behind the binary,
@@ -149,7 +157,9 @@ async fn binary_boots_with_postgres_coordinator() {
     for i in 0..10 {
         producer
             .send(
-                FutureRecord::to(topic).payload(format!("v{i}").as_bytes()).key(format!("k{i}").as_bytes()),
+                FutureRecord::to(topic)
+                    .payload(format!("v{i}").as_bytes())
+                    .key(format!("k{i}").as_bytes()),
                 Duration::from_secs(10),
             )
             .await
@@ -178,5 +188,8 @@ async fn binary_boots_with_postgres_coordinator() {
     .await
     .expect("consume task");
 
-    assert_eq!(count, 10, "expected 10 records via Postgres-backed fjord binary, got {count}");
+    assert_eq!(
+        count, 10,
+        "expected 10 records via Postgres-backed fjord binary, got {count}"
+    );
 }

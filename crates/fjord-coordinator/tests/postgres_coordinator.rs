@@ -42,7 +42,10 @@ fn mk(topic: &str, partition: i32, pid: i64, epoch: i16, seq: i32, count: i32) -
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self, n: u64) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 33) % n
     }
 }
@@ -80,7 +83,9 @@ fn assert_equivalent(oracle: &dyn CoordinatorStore, subject: &dyn CoordinatorSto
     for _ in 0..10 {
         let count = 1 + rng.next(3) as i32;
         let b = mk("t", 0, pid, 0, seq, count);
-        let o = oracle.commit_object(&format!("idem-{seq}"), &[b.clone()]).unwrap();
+        let o = oracle
+            .commit_object(&format!("idem-{seq}"), &[b.clone()])
+            .unwrap();
         let s = subject.commit_object(&format!("idem-{seq}"), &[b]).unwrap();
         assert_eq!(o, s, "idempotent commit diverged at seq {seq}");
         sent.push((seq, count));
@@ -92,7 +97,10 @@ fn assert_equivalent(oracle: &dyn CoordinatorStore, subject: &dyn CoordinatorSto
         let o = oracle.commit_object("replay", &[b.clone()]).unwrap();
         let s = subject.commit_object("replay", &[b]).unwrap();
         assert_eq!(o, s, "replay outcome diverged at seq {s_seq}");
-        assert!(matches!(o[0], CommitOutcome::Duplicate { .. }), "expected Duplicate");
+        assert!(
+            matches!(o[0], CommitOutcome::Duplicate { .. }),
+            "expected Duplicate"
+        );
     }
 
     // Compare every partition's HW, log-start, and full index.
@@ -109,8 +117,14 @@ fn assert_equivalent(oracle: &dyn CoordinatorStore, subject: &dyn CoordinatorSto
         );
         let oi = oracle.index_lookup("t", p, 0).unwrap();
         let si = subject.index_lookup("t", p, 0).unwrap();
-        let okey: Vec<_> = oi.iter().map(|e| (e.base_offset, e.record_count, e.object_id.clone())).collect();
-        let skey: Vec<_> = si.iter().map(|e| (e.base_offset, e.record_count, e.object_id.clone())).collect();
+        let okey: Vec<_> = oi
+            .iter()
+            .map(|e| (e.base_offset, e.record_count, e.object_id.clone()))
+            .collect();
+        let skey: Vec<_> = si
+            .iter()
+            .map(|e| (e.base_offset, e.record_count, e.object_id.clone()))
+            .collect();
         assert_eq!(okey, skey, "index diverged on partition {p}");
     }
 
@@ -126,17 +140,26 @@ fn assert_equivalent(oracle: &dyn CoordinatorStore, subject: &dyn CoordinatorSto
     assert_eq!(ol, sl, "group offset listing diverged");
     oracle.delete_offset("g", "t", 0).unwrap();
     subject.delete_offset("g", "t", 0).unwrap();
-    assert_eq!(oracle.offset_fetch("g", "t", 0).unwrap(), subject.offset_fetch("g", "t", 0).unwrap());
+    assert_eq!(
+        oracle.offset_fetch("g", "t", 0).unwrap(),
+        subject.offset_fetch("g", "t", 0).unwrap()
+    );
     oracle.delete_group_offsets("g").unwrap();
     subject.delete_group_offsets("g").unwrap();
-    assert_eq!(oracle.list_group_offsets("g").unwrap().len(), subject.list_group_offsets("g").unwrap().len());
+    assert_eq!(
+        oracle.list_group_offsets("g").unwrap().len(),
+        subject.list_group_offsets("g").unwrap().len()
+    );
 
     // Truncation advances log-start and drops covered index entries identically.
     let hw0 = oracle.high_watermark("t", 0).unwrap();
     if hw0 > 2 {
         oracle.truncate_before("t", 0, 2).unwrap();
         subject.truncate_before("t", 0, 2).unwrap();
-        assert_eq!(oracle.log_start_offset("t", 0).unwrap(), subject.log_start_offset("t", 0).unwrap());
+        assert_eq!(
+            oracle.log_start_offset("t", 0).unwrap(),
+            subject.log_start_offset("t", 0).unwrap()
+        );
         assert_eq!(
             oracle.index_lookup("t", 0, 0).unwrap().len(),
             subject.index_lookup("t", 0, 0).unwrap().len(),
@@ -170,21 +193,42 @@ fn postgres_enforces_gapless_producer_ordering() {
     for i in 0..6 {
         let count = (i % 3) + 1;
         let out = pg
-            .commit_object(&format!("o{i}"), &[mk("t", 0, pid.producer_id, pid.producer_epoch, seq, count)])
+            .commit_object(
+                &format!("o{i}"),
+                &[mk("t", 0, pid.producer_id, pid.producer_epoch, seq, count)],
+            )
             .unwrap();
-        assert_eq!(out[0], CommitOutcome::Assigned { base_offset: expected, record_count: count });
+        assert_eq!(
+            out[0],
+            CommitOutcome::Assigned {
+                base_offset: expected,
+                record_count: count
+            }
+        );
         seq += count;
         expected += count as i64;
     }
 
     // A gap-ahead batch is rejected and does not advance the HW.
-    let gap = pg.commit_object("gap", &[mk("t", 0, pid.producer_id, pid.producer_epoch, seq + 5, 1)]);
-    assert!(matches!(gap, Err(CoordinatorError::OutOfOrderSequence { .. })), "expected OutOfOrderSequence, got {gap:?}");
+    let gap = pg.commit_object(
+        "gap",
+        &[mk("t", 0, pid.producer_id, pid.producer_epoch, seq + 5, 1)],
+    );
+    assert!(
+        matches!(gap, Err(CoordinatorError::OutOfOrderSequence { .. })),
+        "expected OutOfOrderSequence, got {gap:?}"
+    );
     assert_eq!(pg.high_watermark("t", 0).unwrap(), expected);
 
     // Epoch fence: a lower epoch is rejected.
-    let fenced = pg.commit_object("fence", &[mk("t", 0, pid.producer_id, pid.producer_epoch - 1, 0, 1)]);
-    assert!(matches!(fenced, Err(CoordinatorError::InvalidProducerEpoch { .. })), "expected InvalidProducerEpoch, got {fenced:?}");
+    let fenced = pg.commit_object(
+        "fence",
+        &[mk("t", 0, pid.producer_id, pid.producer_epoch - 1, 0, 1)],
+    );
+    assert!(
+        matches!(fenced, Err(CoordinatorError::InvalidProducerEpoch { .. })),
+        "expected InvalidProducerEpoch, got {fenced:?}"
+    );
 }
 
 #[test]
@@ -195,11 +239,17 @@ fn postgres_init_producer_id_is_monotonic_and_topic_metadata_roundtrips() {
     };
     let a = pg.init_producer_id().unwrap();
     let b = pg.init_producer_id().unwrap();
-    assert!(b.producer_id > a.producer_id, "producer ids must be monotonic");
+    assert!(
+        b.producer_id > a.producer_id,
+        "producer ids must be monotonic"
+    );
 
     pg.create_topic("orders", 8).unwrap();
     assert_eq!(pg.topic_partitions("orders").unwrap(), Some(8));
-    assert!(matches!(pg.create_topic("orders", 8), Err(CoordinatorError::TopicExists(_))));
+    assert!(matches!(
+        pg.create_topic("orders", 8),
+        Err(CoordinatorError::TopicExists(_))
+    ));
     let topics = pg.list_topics().unwrap();
     assert!(topics.iter().any(|(n, p)| n == "orders" && *p == 8));
 }
@@ -260,8 +310,14 @@ fn postgres_consumer_group_join_leave_describe() {
     let j1 = pg.join_group("grp", "m-b").unwrap();
     assert_eq!(j1.leader, "m-b");
     let j2 = pg.join_group("grp", "m-a").unwrap();
-    assert!(j2.generation > j1.generation, "generation must bump on new member");
-    assert_eq!(j2.leader, "m-a", "leader is the lexicographically smallest member");
+    assert!(
+        j2.generation > j1.generation,
+        "generation must bump on new member"
+    );
+    assert_eq!(
+        j2.leader, "m-a",
+        "leader is the lexicographically smallest member"
+    );
 
     let desc = pg.describe_group("grp").unwrap().expect("group exists");
     assert_eq!(desc.members.len(), 2);

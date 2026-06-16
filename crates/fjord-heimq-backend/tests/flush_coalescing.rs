@@ -41,17 +41,24 @@ async fn server_side_flush_coalesces_concurrent_producers() {
     let backend = Arc::new(CoordinatorLogBackend::with_flush_config(
         Arc::clone(&coord),
         Arc::clone(&blob) as Arc<dyn BlobStore>,
-        FlushConfig { timeout: Duration::from_millis(5), max_bytes: 16 << 20, max_batches: 1_000_000 },
+        FlushConfig {
+            timeout: Duration::from_millis(5),
+            max_bytes: 16 << 20,
+            max_batches: 1_000_000,
+        },
     ));
-    backend.create_topic(topic, partitions).expect("create topic");
+    backend
+        .create_topic(topic, partitions)
+        .expect("create topic");
 
     use clap::Parser as _;
     let port = heimq::test_support::next_port();
     let config = heimq::config::Config::parse_from(["heimq", "--port", &port.to_string()]);
     let offsets: Arc<dyn heimq_broker::storage::OffsetStore> =
         Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coord)));
-    let server = Server::with_backends(config, Arc::clone(&backend) as Arc<dyn LogBackend>, offsets)
-        .expect("server");
+    let server =
+        Server::with_backends(config, Arc::clone(&backend) as Arc<dyn LogBackend>, offsets)
+            .expect("server");
     tokio::spawn(async move { server.run().await.ok() });
     tokio::time::sleep(Duration::from_millis(400)).await;
     let bootstrap = format!("127.0.0.1:{port}");

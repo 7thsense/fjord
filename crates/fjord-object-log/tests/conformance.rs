@@ -3,7 +3,9 @@
 // Runs under a multi-thread tokio runtime so that block_in_place inside
 // ObjectLogPartitionLog can call Handle::current().block_on().
 
-use fjord_object_log::{ObjectLogFjordConfig, ObjectLogFjordLog, ObjectLogOffsetStore, ObjectLogPartitionLog};
+use fjord_object_log::{
+    ObjectLogFjordConfig, ObjectLogFjordLog, ObjectLogOffsetStore, ObjectLogPartitionLog,
+};
 use heimq_broker::storage::{LogBackend, OffsetStore, PartitionLog};
 use heimq_testkit::suites;
 use object_log::{LocalObjectStore, MemoryObjectStore};
@@ -54,11 +56,7 @@ fn object_log_partition_log_local_suite() {
         let make_log = || -> Arc<dyn PartitionLog> {
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
             let store = Arc::new(LocalObjectStore::new(dir.path()));
-            Arc::new(ObjectLogPartitionLog::new(
-                store,
-                &format!("local-{n}"),
-                0,
-            ))
+            Arc::new(ObjectLogPartitionLog::new(store, &format!("local-{n}"), 0))
         };
         suites::partition_log::run_all(&make_log);
     });
@@ -70,8 +68,7 @@ fn object_log_partition_log_local_suite() {
 
 fn make_fjord_log_memory() -> ObjectLogFjordLog {
     let store = Arc::new(MemoryObjectStore::default());
-    ObjectLogFjordLog::new(store, ObjectLogFjordConfig::default())
-        .expect("valid config")
+    ObjectLogFjordLog::new(store, ObjectLogFjordConfig::default()).expect("valid config")
 }
 
 /// LogBackend conformance suite backed by MemoryObjectStore.
@@ -99,8 +96,8 @@ fn object_log_fjord_log_backend_local_suite() {
         .expect("tokio runtime");
     rt.block_on(async {
         let store = Arc::new(LocalObjectStore::new(dir.path()));
-        let log = ObjectLogFjordLog::new(store, ObjectLogFjordConfig::default())
-            .expect("valid config");
+        let log =
+            ObjectLogFjordLog::new(store, ObjectLogFjordConfig::default()).expect("valid config");
         suites::log_backend::run_all(&log);
     });
 }
@@ -175,15 +172,18 @@ fn object_log_fjord_fetch_fails_closed_on_corruption() {
         let valid_batch = buf.freeze();
         assert!(valid_batch.len() >= 64);
 
-        log.append("t", 0, &valid_batch).expect("append valid batch");
+        log.append("t", 0, &valid_batch)
+            .expect("append valid batch");
 
         // Corrupt the stored object: delete then put corrupt bytes at same key.
-        let corrupt_key =
-            object_log::ObjectKey::new("t/t/0/00000000000000000000").unwrap();
+        let corrupt_key = object_log::ObjectKey::new("t/t/0/00000000000000000000").unwrap();
         let mut corrupt_bytes = valid_batch.to_vec();
         corrupt_bytes[17] ^= 0xFF; // flip CRC bytes 17-20
         corrupt_bytes[18] ^= 0xFF;
-        store.delete(&corrupt_key).await.expect("delete before re-inject");
+        store
+            .delete(&corrupt_key)
+            .await
+            .expect("delete before re-inject");
         store
             .put_if_absent(&corrupt_key, Bytes::from(corrupt_bytes))
             .await
@@ -260,7 +260,9 @@ fn object_log_offset_store_survives_recreate() {
         // Fetch via second instance sharing the same backing store.
         {
             let os2 = ObjectLogOffsetStore::new(store.clone());
-            let co = os2.fetch("g1", "my-topic", 0).expect("fetch after recreate");
+            let co = os2
+                .fetch("g1", "my-topic", 0)
+                .expect("fetch after recreate");
             assert_eq!(co.offset, 42, "offset must survive instance recreation");
         }
     });
