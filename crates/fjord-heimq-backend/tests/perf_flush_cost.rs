@@ -112,12 +112,10 @@ async fn flush_cost_sweep() {
     );
     for mb in [256 * 1024usize, 1 << 20, 4 << 20, 8 << 20, 32 << 20] {
         let (objects, bytes, rate) = run_one(mb).await;
-        let recs_per = if objects > 0 { N / objects } else { 0 };
-        let kb_per = if objects > 0 {
-            (bytes / objects) as f64 / 1024.0
-        } else {
-            0.0
-        };
+        let recs_per = N.checked_div(objects).unwrap_or(0);
+        let kb_per = bytes
+            .checked_div(objects)
+            .map_or(0.0, |b| b as f64 / 1024.0);
         let puts_per_m = (objects as f64) * 1_000_000.0 / (N as f64);
         let label = if mb >= 1 << 20 {
             format!("{}MB", mb >> 20)
