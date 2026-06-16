@@ -11,7 +11,7 @@ description = "fjord produce/fetch path: multiplexed L0 objects sequenced by the
 [dependencies]
 fjord-coordinator = { path = "../fjord-coordinator" }
 parking_lot = "0.12"
-object-log = { git = "https://github.com/easel/object-log", rev = "e859c8c" } # TODO(release): flip to object-log = "0.1" once published to crates.io
+object-log = { git = "https://github.com/easel/object-log", rev = "e859c8c" } # short-term: GitHub ref; switch to crates.io (object-log = "0.1") once published
 bytes = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 aws-sdk-s3 = { version = "1.122", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
