@@ -161,7 +161,25 @@ unbatched tail never reaches clients; consider coordinator group-commit /
   never appear.) Validates the diskless claim: stateless brokers tolerate
   repeated kills with zero data loss (state lives in Postgres + object store).
 
-Still outstanding (not core gaps): real S3 (Garage) full-durable run
-(`FJORD_GARAGE_SECRET`); coordinator-crash recovery with persistent Postgres
-(RDS/PVC, not the test's emptyDir); idempotent-producer exactly-once-under-chaos;
-optional Jepsen Elle on a recorded history.
+- **Full-durable throughput on real S3** (`perf_durable.rs` with Garage on the
+  network, Postgres coordinator; 50k × 64 B, 1 partition, debug):
+
+  | Config | Produce | Consume |
+  |---|---|---|
+  | memory + memory (baseline) | ~714k rec/s | ~264k rec/s |
+  | Postgres + memory | ~303k rec/s | ~244k rec/s |
+  | **Postgres + real Garage S3** | **~113k rec/s** | **~260k rec/s** |
+
+  The fully durable path (networked S3 + Postgres) sustains ~113k produce / ~260k
+  consume rec/s. Consume is ~unaffected (98% of baseline — reads resolve via the
+  index); produce drops to ~16% on real-S3 PUT latency over the network, the
+  expected diskless tradeoff (mitigated by batching/flush). For reference the
+  differential clocked real Apache Kafka at ~76k produce rec/s, so even the
+  network-S3 durable path is in Kafka's ballpark while being diskless. Surfaced +
+  fixed a real bug: `S3BlobStore` assumed an ambient tokio runtime, which broke
+  when the server-side flush thread (plain OS thread) called it — now owns a
+  fallback runtime, mirroring `PgCoordinator`.
+
+Still outstanding (not core gaps): coordinator-crash recovery with persistent
+Postgres (RDS/PVC, not the test's emptyDir); idempotent-producer
+exactly-once-under-chaos; optional Jepsen Elle on a recorded history.
