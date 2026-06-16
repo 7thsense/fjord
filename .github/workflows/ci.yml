@@ -13,8 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: System deps (cmake for aws-lc-sys + librdkafka)
-        run: sudo apt-get update && sudo apt-get install -y cmake
+      # cmake: aws-lc-sys (S3 rustls) + librdkafka.
+      # The rdkafka dev-dep uses `cmake-build`, which compiles librdkafka from
+      # source and needs the sasl/ssl/zstd/zlib/curl dev headers. rdkafka is only
+      # pulled by #[ignore]'d real-Kafka tests, but --all-targets still compiles it.
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libsasl2-dev libssl-dev libzstd-dev zlib1g-dev libcurl4-openssl-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
