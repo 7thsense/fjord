@@ -59,6 +59,7 @@ test_mode() {
 
     helm upgrade --install r "$CHART" -n "$ns" \
         --set mode="$mode" --set replicaCount=3 --set autoscaling.enabled=false \
+        --set image.repository=fjord --set image.tag=dev \
         --set image.pullPolicy=IfNotPresent \
         --set 'broker.createTopics={e2e:6}'
 
