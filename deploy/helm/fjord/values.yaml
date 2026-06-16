@@ -6,8 +6,10 @@
 #                   at RDS and objectStore at real S3 (see the prod example below).
 
 image:
-  repository: fjord
-  tag: dev
+  # Published broker image (GHCR). For local kind runs, override with
+  # --set image.repository=fjord --set image.tag=dev (see deploy/kind-e2e.sh).
+  repository: ghcr.io/telepathdata/fjord
+  tag: "" # defaults to the chart appVersion
   pullPolicy: IfNotPresent
 
 # Topology mode:
