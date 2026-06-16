@@ -1,0 +1,10 @@
+# Keep the build context small and reproducible.
+target/
+.git/
+.github/
+docs/
+deploy/
+# Local-only dep override: must NOT enter the image, or cargo would look for
+# absent sibling checkouts instead of the pinned git deps.
+.cargo/config.toml
+**/*.md
