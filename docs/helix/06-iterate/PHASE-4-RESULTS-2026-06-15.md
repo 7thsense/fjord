@@ -136,5 +136,32 @@ buffering** so the dial works independent of client `linger.ms` and the
 unbatched tail never reaches clients; consider coordinator group-commit /
 `synchronous_commit` tuning.
 
-Still outstanding: real S3 (Garage) full-durable run (`FJORD_GARAGE_SECRET`);
-EOS / consumer-group differential; Jepsen; coordinator-crash recovery.
+## Update 2026-06-16 — correctness parity + external chaos validation
+
+- **EOS / transactions** (`fjord-coordinator/tests/eos.rs`, memory+Postgres
+  differential): full lifecycle (init-tx → produce → stage offsets →
+  commit/abort) with `read_committed` invariants — LSO pinning/release, abort
+  filtering, monotonic LSO ≤ HW, idempotent `end_txn`, epoch fencing. Surfaced +
+  fixed a real bug: `commit_object` didn't fence a re-init'd (zombie)
+  transactional producer by its txn epoch. Also `eos_faults.rs`: EOS atomicity
+  holds across 250+ seeded fault schedules (pre-fail + ack-loss on
+  `commit_object`/`end_txn`).
+- **Consumer groups** (`tests/groups.rs`, differential): generation bumps only on
+  membership change, deterministic leader, per-group offset isolation, offsets
+  survive rebalance. Surfaced + fixed a 2nd backend-drift bug:
+  `PgCoordinator.join_group` bumped generation on every join vs Memory's
+  membership-change-only.
+- **External chaos validation** (`deploy/chaos/`): no Jepsen k8s port exists, so
+  used **Apache Kafka's own `kafka-verifiable-producer`/`-consumer`** (the
+  reference no-loss/contiguous-offset oracle) + **Chaos Mesh** (CNCF) on the kind
+  cluster. Baseline (no chaos): 20000/20000 consumed, contiguous. Under Chaos
+  Mesh killing a broker pod every 20s during a 60k-record `acks=all` run:
+  **59868 acked → 59868 consumed, per-partition contiguous — no lost acked
+  writes, no offset gaps.** (Un-acked produces that hit a killed pod correctly
+  never appear.) Validates the diskless claim: stateless brokers tolerate
+  repeated kills with zero data loss (state lives in Postgres + object store).
+
+Still outstanding (not core gaps): real S3 (Garage) full-durable run
+(`FJORD_GARAGE_SECRET`); coordinator-crash recovery with persistent Postgres
+(RDS/PVC, not the test's emptyDir); idempotent-producer exactly-once-under-chaos;
+optional Jepsen Elle on a recorded history.
