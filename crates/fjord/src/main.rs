@@ -14,7 +14,7 @@ use clap::Parser;
 use fjord_broker::{ClusterMembership, FjordMultiBrokerClusterView};
 use fjord_coordinator::{memory::MemoryCoordinator, postgres::PgCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore, FlushConfig};
-use fjord_log::{s3::S3BlobStore, BlobStore, MemoryBlobStore};
+use object_log::{BlobStore, MemoryBlobStore, S3BlobStore};
 use heimq::server::Server;
 use heimq_broker::storage::{BrokerInfo, LogBackend, OffsetStore};
 use tracing::info;

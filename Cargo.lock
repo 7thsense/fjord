@@ -1053,9 +1053,9 @@ dependencies = [
  "fjord-broker",
  "fjord-coordinator",
  "fjord-heimq-backend",
- "fjord-log",
  "heimq",
  "heimq-broker",
+ "object-log",
  "rdkafka",
  "tokio",
  "tracing",
@@ -1101,38 +1101,6 @@ dependencies = [
  "object-log",
  "parking_lot",
  "rdkafka",
- "tokio",
-]
-
-[[package]]
-name = "fjord-log"
-version = "0.1.0"
-dependencies = [
- "aws-sdk-s3",
- "bytes",
- "fjord-coordinator",
- "object-log",
- "parking_lot",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "fjord-object-log"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "clap",
- "heimq",
- "heimq-broker",
- "heimq-testkit",
- "kafka-protocol",
- "object-log",
- "parking_lot",
- "rdkafka",
- "serde",
- "serde_json",
- "tempfile",
  "tokio",
 ]
 
