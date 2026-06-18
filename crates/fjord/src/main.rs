@@ -14,9 +14,9 @@ use clap::Parser;
 use fjord_broker::{ClusterMembership, FjordMultiBrokerClusterView};
 use fjord_coordinator::{memory::MemoryCoordinator, postgres::PgCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore, FlushConfig};
-use object_log::{BlobStore, MemoryBlobStore, S3BlobStore};
 use heimq::server::Server;
 use heimq_broker::storage::{BrokerInfo, LogBackend, OffsetStore};
+use object_log::{BlobStore, MemoryBlobStore, S3BlobStore};
 use tracing::info;
 
 /// fjord broker configuration. Every flag has an env fallback so the same

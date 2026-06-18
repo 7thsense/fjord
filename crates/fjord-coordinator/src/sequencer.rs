@@ -207,7 +207,9 @@ impl Sequencer for CoordinatorSequencer {
         offset: i64,
     ) -> Result<Vec<String>, ObjectLogError> {
         let (t, p) = split(partition)?;
-        self.coord.truncate_before(t, p, offset).map_err(encode_err)?;
+        self.coord
+            .truncate_before(t, p, offset)
+            .map_err(encode_err)?;
         // fjord's coordinator advances log_start and drops index entries; object
         // reclamation is a separate retention concern, so no dead-object list.
         Ok(Vec::new())

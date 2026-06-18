@@ -17,7 +17,7 @@ pub mod memory;
 pub mod postgres;
 pub mod sequencer;
 
-pub use sequencer::{CoordinatorSequencer, ProducerMeta, decode_err, partition_key};
+pub use sequencer::{decode_err, partition_key, CoordinatorSequencer, ProducerMeta};
 
 use std::fmt;
 

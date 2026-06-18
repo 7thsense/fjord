@@ -13,14 +13,14 @@ use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
 use fjord_coordinator::{
-    CoordinatorError, CoordinatorSequencer, CoordinatorStore, ProducerMeta, decode_err,
-    partition_key,
+    decode_err, partition_key, CoordinatorError, CoordinatorSequencer, CoordinatorStore,
+    ProducerMeta,
 };
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
-    AppendFuture, AtomicAppendScope, BackendCapabilities, CommittedOffset, Durability, FetchWait,
-    LogBackend, OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode,
-    TopicConfig, TopicLog, stamp_base_offset,
+    stamp_base_offset, AppendFuture, AtomicAppendScope, BackendCapabilities, CommittedOffset,
+    Durability, FetchWait, LogBackend, OffsetStore, OffsetStoreCapabilities, PartitionLog,
+    RecordBatchView, RetentionMode, TopicConfig, TopicLog,
 };
 use object_log::{BlobStore, Durability as Ack, FlushConfig as EngineFlushConfig, LogEngine};
 use parking_lot::Mutex;
@@ -528,7 +528,10 @@ mod tests {
         assert_eq!(be.list_topics(), vec!["t".to_string()]);
         assert_eq!(be.get_all_topic_metadata(), vec![("t".to_string(), 3)]);
         assert_eq!(be.topic("t").unwrap().num_partitions(), 3);
-        assert!(be.create_topic("t", 3).is_err(), "duplicate create rejected");
+        assert!(
+            be.create_topic("t", 3).is_err(),
+            "duplicate create rejected"
+        );
         assert!(be.topic("missing").is_none());
     }
 
@@ -589,7 +592,10 @@ mod tests {
         let mut b = Bytes::from(bytes);
         let decoded = RecordBatchDecoder::decode(&mut b).expect("decode batch");
         assert_eq!(decoded.records.len(), 1);
-        assert_eq!(decoded.records[0].value.as_deref(), Some(&b"hello-fjord"[..]));
+        assert_eq!(
+            decoded.records[0].value.as_deref(),
+            Some(&b"hello-fjord"[..])
+        );
         assert_eq!(decoded.records[0].offset, 0);
     }
 }

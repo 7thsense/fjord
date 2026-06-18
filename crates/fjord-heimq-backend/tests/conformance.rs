@@ -17,9 +17,9 @@ use std::sync::Arc;
 
 use fjord_coordinator::{memory::MemoryCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore};
-use object_log::{BlobStore, MemoryBlobStore};
 use heimq_broker::storage::{LogBackend, PartitionLog};
 use heimq_testkit::suites;
+use object_log::{BlobStore, MemoryBlobStore};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
