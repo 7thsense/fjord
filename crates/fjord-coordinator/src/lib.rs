@@ -15,6 +15,9 @@
 pub mod memory;
 #[cfg(feature = "postgres-backend")]
 pub mod postgres;
+pub mod sequencer;
+
+pub use sequencer::{CoordinatorSequencer, ProducerMeta, decode_err, partition_key};
 
 use std::fmt;
 
