@@ -10,7 +10,7 @@ description = "object-log backed PartitionLog implementation for fjord"
 
 [dependencies]
 heimq-broker = { git = "https://github.com/easel/heimq", rev = "da4b87f" }
-object-log = { git = "https://github.com/easel/object-log", rev = "e859c8c" } # short-term: GitHub ref; switch to crates.io (object-log = "0.1") once published
+object-log = { git = "https://github.com/easel/object-log", rev = "973d839" } # short-term: GitHub ref; switch to crates.io (object-log = "0.1") once published
 bytes = "1"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }

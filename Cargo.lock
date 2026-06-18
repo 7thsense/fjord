@@ -1013,7 +1013,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1079,6 +1079,7 @@ name = "fjord-coordinator"
 version = "0.1.0"
 dependencies = [
  "deadpool-postgres",
+ "object-log",
  "parking_lot",
  "proptest",
  "tokio",
@@ -1093,11 +1094,11 @@ dependencies = [
  "clap",
  "fjord-broker",
  "fjord-coordinator",
- "fjord-log",
  "heimq",
  "heimq-broker",
  "heimq-testkit",
  "kafka-protocol",
+ "object-log",
  "parking_lot",
  "rdkafka",
  "tokio",
@@ -2040,13 +2041,13 @@ dependencies = [
 [[package]]
 name = "object-log"
 version = "0.1.0"
-source = "git+https://github.com/easel/object-log?rev=e859c8c#e859c8c8ccc40053d8f7de1c2d5ced452001f9c9"
+source = "git+https://github.com/easel/object-log?rev=973d839#973d8397b26012fac26ecf4b1551e93d0856779c"
 dependencies = [
  "async-trait",
+ "aws-sdk-s3",
  "bytes",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -2532,7 +2533,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2898,7 +2899,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

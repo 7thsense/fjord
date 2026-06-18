@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use fjord_coordinator::{memory::MemoryCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore};
-use fjord_log::{BlobStore, MemoryBlobStore};
+use object_log::{BlobStore, MemoryBlobStore};
 use heimq::server::Server;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::message::Message as _;

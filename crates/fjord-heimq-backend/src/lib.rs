@@ -1,248 +1,86 @@
 //! heimq-broker backend over the fjord coordinator + object storage (ADR-008).
 //!
-//! This is the bridge that lets heimq's existing Kafka wire/handler/group stack
-//! drive the new central-coordinator sequencing model. The coordinator owns
-//! offset assignment (`commit_object`); object storage holds record bytes;
-//! `PartitionLog::append` PUTs the batch then commits, and `read` resolves the
-//! coordinator index and patches `base_offset` on the way out (CRC-safe: the
-//! Kafka v2 batch CRC excludes the base-offset field).
-//!
-//! S1-consistent (TD-005 §Heimq seam): fjord owns sequencing; heimq's traits are
-//! the serving surface.
+//! The serving surface is heimq's `LogBackend`/`PartitionLog`/`OffsetStore`
+//! traits; the durable log and group-commit buffering are `object_log::LogEngine`;
+//! offset sequencing (idempotency/EOS/fencing) stays in fjord's coordinator,
+//! plugged into the engine as `object_log::Sequencer` via
+//! [`fjord_coordinator::CoordinatorSequencer`]. Reads resolve the engine and ask
+//! heimq to stamp `base_offset` into each batch on the way out.
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, SyncSender};
-use std::sync::{Arc, Weak};
-use std::task::{Context, Poll, Waker};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, OnceLock};
 
-use fjord_coordinator::{BatchMeta, CommitOutcome, CoordinatorError, CoordinatorStore};
-use fjord_log::BlobStore;
+use bytes::Bytes;
+use fjord_coordinator::{
+    CoordinatorError, CoordinatorSequencer, CoordinatorStore, ProducerMeta, decode_err,
+    partition_key,
+};
 use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
     AppendFuture, AtomicAppendScope, BackendCapabilities, CommittedOffset, Durability, FetchWait,
     LogBackend, OffsetStore, OffsetStoreCapabilities, PartitionLog, RecordBatchView, RetentionMode,
-    TopicConfig, TopicLog,
+    TopicConfig, TopicLog, stamp_base_offset,
 };
-use parking_lot::{Condvar, Mutex};
+use object_log::{BlobStore, Durability as Ack, FlushConfig as EngineFlushConfig, LogEngine};
+use parking_lot::Mutex;
+use tokio::runtime::{Handle, Runtime};
 
-/// Server-side flush buffering (TD-005 / ADR-006). Many client produce requests
-/// across partitions are coalesced into ONE multiplexed L0 object + ONE
-/// `commit_object`, amortizing the durable-commit cost. The flush is triggered
-/// by a timeout (the cost dial), a byte cap, or a batch-count cap.
+/// The engine specialized for fjord's coordinator-backed sequencer.
+type Engine = LogEngine<CoordinatorSequencer>;
+
+/// Server-side flush buffering (TD-005 / ADR-006) — the cost dial. Maps onto
+/// `object_log::FlushConfig`. Many produce requests across partitions coalesce
+/// into ONE multiplexed object + ONE commit, amortizing the durable-commit cost.
 #[derive(Clone, Copy, Debug)]
 pub struct FlushConfig {
-    /// Max time the oldest buffered batch waits before a flush. `ZERO` =
-    /// group-commit-on-demand: flush immediately at low load, coalesce whatever
-    /// accumulates while a flush is in flight under load (no added latency).
-    pub timeout: Duration,
-    /// Flush once the buffered object reaches this many bytes. This is the
-    /// primary object-size lever for S3 cost: larger objects ⇒ fewer PUTs.
+    /// Max time the oldest buffered batch waits before a flush (`ZERO` =
+    /// group-commit-on-demand).
+    pub timeout: std::time::Duration,
+    /// Flush once the buffered object reaches this many bytes (object-size lever).
     pub max_bytes: usize,
-    /// Flush once this many batches are buffered. A safety cap on per-flush
-    /// bookkeeping, deliberately high so `max_bytes` (not this) governs object
-    /// size — otherwise small records would cap objects far below `max_bytes`
-    /// and inflate the S3 PUT count.
+    /// Flush once this many batches are buffered (high; `max_bytes` governs size).
     pub max_batches: usize,
 }
 
 impl Default for FlushConfig {
     fn default() -> Self {
         Self {
-            timeout: Duration::ZERO,
+            timeout: std::time::Duration::ZERO,
             max_bytes: 8 * 1024 * 1024,
             max_batches: 1_000_000,
         }
     }
 }
 
-/// One buffered append awaiting its coordinator-assigned offset.
-struct Pending {
-    meta: BatchMeta,
-    bytes: Vec<u8>,
-    resp: PendingResponse,
-}
-
-enum PendingResponse {
-    Blocking(SyncSender<Result<(i64, i64)>>),
-    Async(Arc<AsyncAppendState>),
-}
-
-impl PendingResponse {
-    fn complete(self, result: Result<(i64, i64)>) {
-        match self {
-            PendingResponse::Blocking(tx) => {
-                let _ = tx.send(result);
-            }
-            PendingResponse::Async(state) => state.complete(result),
+impl From<FlushConfig> for EngineFlushConfig {
+    fn from(c: FlushConfig) -> Self {
+        EngineFlushConfig {
+            max_bytes: c.max_bytes,
+            max_batches: c.max_batches,
+            linger: c.timeout,
         }
     }
 }
 
-#[derive(Default)]
-struct AsyncAppendState {
-    inner: Mutex<AsyncAppendInner>,
-}
-
-#[derive(Default)]
-struct AsyncAppendInner {
-    result: Option<Result<(i64, i64)>>,
-    waker: Option<Waker>,
-}
-
-impl AsyncAppendState {
-    fn complete(&self, result: Result<(i64, i64)>) {
-        let waker = {
-            let mut inner = self.inner.lock();
-            inner.result = Some(result);
-            inner.waker.take()
-        };
-        if let Some(waker) = waker {
-            waker.wake();
-        }
-    }
-}
-
-struct AsyncAppendFuture {
-    state: Arc<AsyncAppendState>,
-}
-
-impl Future for AsyncAppendFuture {
-    type Output = Result<(i64, i64)>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut inner = self.state.inner.lock();
-        if let Some(result) = inner.result.take() {
-            Poll::Ready(result)
-        } else {
-            inner.waker = Some(cx.waker().clone());
-            Poll::Pending
-        }
-    }
-}
-
-#[derive(Default)]
-struct FlushState {
-    queue: Vec<Pending>,
-    /// When the current (non-empty) queue's first batch was enqueued.
-    oldest: Option<Instant>,
-}
-
-/// Shared group-commit buffer for a backend. Appends enqueue here and block on
-/// their `resp`; a single background thread flushes.
-struct Flusher {
-    coordinator: Arc<dyn CoordinatorStore>,
-    blob: Arc<dyn BlobStore>,
-    next_object: AtomicU64,
-    state: Mutex<FlushState>,
-    cv: Condvar,
-    cfg: FlushConfig,
-}
-
-impl Flusher {
-    fn enqueue(&self, meta: BatchMeta, bytes: Vec<u8>, resp: PendingResponse) {
-        {
-            let mut st = self.state.lock();
-            if st.queue.is_empty() {
-                st.oldest = Some(Instant::now());
-            }
-            st.queue.push(Pending { meta, bytes, resp });
-        }
-        self.cv.notify_one();
-    }
-
-    /// Enqueue a batch and block until the flusher assigns its offset.
-    fn append(&self, meta: BatchMeta, bytes: Vec<u8>) -> Result<(i64, i64)> {
-        let (tx, rx) = sync_channel(1);
-        self.enqueue(meta, bytes, PendingResponse::Blocking(tx));
-        rx.recv()
-            .unwrap_or_else(|_| Err(HeimqError::Protocol("flusher stopped".into())))
-    }
-
-    /// Enqueue a batch and return a future resolved by the flusher thread.
-    fn append_async(&self, meta: BatchMeta, bytes: Vec<u8>) -> AppendFuture<'static> {
-        let state = Arc::new(AsyncAppendState::default());
-        self.enqueue(meta, bytes, PendingResponse::Async(Arc::clone(&state)));
-        Box::pin(AsyncAppendFuture { state })
-    }
-
-    /// One flush iteration: either flush a due batch, or wait for one.
-    fn flush_cycle(&self) {
-        let batch = {
-            let mut st = self.state.lock();
-            if st.queue.is_empty() {
-                self.cv.wait_for(&mut st, Duration::from_millis(50));
-                return;
-            }
-            let waited = st.oldest.map(|t| t.elapsed()).unwrap_or_default();
-            let bytes: usize = st.queue.iter().map(|p| p.bytes.len()).sum();
-            let due = waited >= self.cfg.timeout
-                || bytes >= self.cfg.max_bytes
-                || st.queue.len() >= self.cfg.max_batches;
-            if !due {
-                let remaining = self
-                    .cfg
-                    .timeout
-                    .saturating_sub(waited)
-                    .max(Duration::from_micros(50));
-                self.cv.wait_for(&mut st, remaining);
-                return;
-            }
-            st.oldest = None;
-            std::mem::take(&mut st.queue)
-        };
-        self.do_flush(batch);
-    }
-
-    /// Build one multiplexed object from the batch, PUT it, sequence it in one
-    /// `commit_object` (atomic on both backends), and hand each waiter its
-    /// assigned offset.
-    fn do_flush(&self, batch: Vec<Pending>) {
-        if batch.is_empty() {
-            return;
-        }
-        let mut object = Vec::new();
-        let mut metas = Vec::with_capacity(batch.len());
-        for p in &batch {
-            let start = object.len() as u32;
-            object.extend_from_slice(&p.bytes);
-            let mut m = p.meta.clone();
-            m.byte_start = start;
-            m.byte_len = p.bytes.len() as u32;
-            metas.push(m);
-        }
-        let n = self.next_object.fetch_add(1, Ordering::SeqCst);
-        let object_id = format!("seg/{n:020}");
-
-        if let Err(e) = self.blob.put(&object_id, object) {
-            let msg = e.to_string();
-            for p in batch {
-                p.resp
-                    .complete(Err(HeimqError::Protocol(format!("blob put: {msg}"))));
-            }
-            return;
-        }
-        match self.coordinator.commit_object(&object_id, &metas) {
-            Ok(outcomes) => {
-                for (p, outcome) in batch.into_iter().zip(outcomes) {
-                    let base = match outcome {
-                        CommitOutcome::Assigned { base_offset, .. } => base_offset,
-                        CommitOutcome::Duplicate { base_offset } => base_offset,
-                    };
-                    p.resp.complete(Ok((base, p.meta.record_count as i64)));
-                }
-            }
-            Err(e) => {
-                // commit_object is all-or-nothing, so nothing was committed:
-                // surface the error to every waiter; clients retry safely.
-                let msg = e.to_string();
-                for p in batch {
-                    p.resp.complete(Err(HeimqError::Protocol(msg.clone())));
-                }
-            }
+/// Drive an engine future to completion from a synchronous trait method.
+///
+/// The engine's blob I/O is tokio-based, so we need a runtime: reuse the broker's
+/// (via `block_in_place`) when called from inside one, else an owned fallback for
+/// plain-thread callers (tests).
+fn block_on<F: Future>(fut: F) -> F::Output {
+    match Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(move || handle.block_on(fut)),
+        Err(_) => {
+            static RT: OnceLock<Runtime> = OnceLock::new();
+            RT.get_or_init(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .expect("fallback runtime")
+            })
+            .block_on(fut)
         }
     }
 }
@@ -251,15 +89,50 @@ fn coord_err(e: CoordinatorError) -> HeimqError {
     HeimqError::Protocol(e.to_string())
 }
 
-/// A partition served by the coordinator + a blob store. Appends go through the
-/// shared [`Flusher`] (server-side group commit); reads resolve the coordinator
-/// index directly.
+/// Map an engine produce error to a HeimqError, recovering the coordinator's
+/// original message when the error came through the Sequencer seam.
+fn produce_err(e: object_log::ObjectLogError) -> HeimqError {
+    if let object_log::ObjectLogError::Sequencer(msg) = &e {
+        if let Some(ce) = decode_err(msg) {
+            return HeimqError::Protocol(ce.to_string());
+        }
+    }
+    HeimqError::Protocol(e.to_string())
+}
+
+/// Build the produce future for a record batch (shared by sync + async append).
+fn produce_future(
+    engine: Arc<Engine>,
+    topic: &str,
+    partition: i32,
+    view: &RecordBatchView<'_>,
+    raw_bytes: Option<&[u8]>,
+) -> AppendFuture<'static> {
+    let payload = Bytes::copy_from_slice(raw_bytes.unwrap_or_else(|| view.raw()));
+    let meta = ProducerMeta {
+        producer_id: view.producer_id(),
+        producer_epoch: view.producer_epoch(),
+        base_sequence: view.base_sequence(),
+    };
+    let record_count = view.record_count() as i32;
+    let pk = partition_key(topic, partition);
+    Box::pin(async move {
+        let out = engine
+            .produce(pk, payload, record_count, meta, Ack::Sequenced)
+            .await
+            .map_err(produce_err)?;
+        let base = out.base_offset.unwrap_or(0);
+        Ok((base, record_count as i64))
+    })
+}
+
+/// A partition served by the engine; reads resolve the coordinator index via the
+/// engine and stamp `base_offset` on the way out.
 struct CoordinatorPartitionLog {
     topic: String,
     partition: i32,
     coordinator: Arc<dyn CoordinatorStore>,
-    blob: Arc<dyn BlobStore>,
-    flusher: Arc<Flusher>,
+    engine: Arc<Engine>,
 }
 
 impl PartitionLog for CoordinatorPartitionLog {
@@ -268,8 +141,13 @@ impl PartitionLog for CoordinatorPartitionLog {
     }
 
     fn append(&self, view: &RecordBatchView<'_>, raw_bytes: Option<&[u8]>) -> Result<(i64, i64)> {
-        let (meta, bytes) = self.prepare_append(view, raw_bytes);
-        self.flusher.append(meta, bytes)
+        block_on(produce_future(
+            Arc::clone(&self.engine),
+            &self.topic,
+            self.partition,
+            view,
+            raw_bytes,
+        ))
     }
 
     fn append_async<'a, 'b>(
@@ -277,8 +155,13 @@ impl PartitionLog for CoordinatorPartitionLog {
         view: &'a RecordBatchView<'b>,
         raw_bytes: Option<&'a [u8]>,
     ) -> AppendFuture<'a> {
-        let (meta, bytes) = self.prepare_append(view, raw_bytes);
-        self.flusher.append_async(meta, bytes)
+        produce_future(
+            Arc::clone(&self.engine),
+            &self.topic,
+            self.partition,
+            view,
+            raw_bytes,
+        )
     }
 
     fn read(&self, offset: i64, max_bytes: usize, _wait: FetchWait) -> Result<(Vec<u8>, i64)> {
@@ -289,34 +172,15 @@ impl PartitionLog for CoordinatorPartitionLog {
         if offset >= hwm {
             return Ok((Vec::new(), hwm));
         }
-        let entries = self
-            .coordinator
-            .index_lookup(&self.topic, self.partition, offset)
-            .map_err(coord_err)?;
+        let pk = partition_key(&self.topic, self.partition);
+        let batches = block_on(self.engine.fetch(&pk, offset, max_bytes))
+            .map_err(|e| HeimqError::Protocol(e.to_string()))?;
         let mut out = Vec::new();
-        for e in entries {
-            if !out.is_empty() && out.len() >= max_bytes {
-                break;
-            }
-            let obj = self
-                .blob
-                .get(&e.object_id)
-                .map_err(HeimqError::Protocol)?
-                .ok_or_else(|| HeimqError::Protocol(format!("missing object {}", e.object_id)))?;
-            let start = e.byte_start as usize;
-            let end = start + e.byte_len as usize;
-            if end > obj.len() {
-                return Err(HeimqError::Protocol(format!(
-                    "index range {start}..{end} out of bounds for {}",
-                    e.object_id
-                )));
-            }
-            let mut batch = obj[start..end].to_vec();
-            // Patch base_offset (bytes 0..8) from the index — CRC-safe in v2.
-            if batch.len() >= 8 {
-                batch[0..8].copy_from_slice(&e.base_offset.to_be_bytes());
-            }
-            out.extend_from_slice(&batch);
+        for b in batches {
+            let mut buf = b.payload.to_vec();
+            // heimq owns the v2 wire layout; stamp the assigned base_offset.
+            stamp_base_offset(&mut buf, b.base_offset);
+            out.extend_from_slice(&buf);
         }
         Ok((out, hwm))
     }
@@ -337,29 +201,6 @@ impl PartitionLog for CoordinatorPartitionLog {
         self.coordinator
             .truncate_before(&self.topic, self.partition, offset)
             .map_err(coord_err)
-    }
-}
-
-impl CoordinatorPartitionLog {
-    fn prepare_append(
-        &self,
-        view: &RecordBatchView<'_>,
-        raw_bytes: Option<&[u8]>,
-    ) -> (BatchMeta, Vec<u8>) {
-        let bytes = raw_bytes.unwrap_or_else(|| view.raw());
-        // Enqueue into the shared flush buffer; byte_start/byte_len are filled in
-        // when the batch is multiplexed into an object at flush time.
-        let meta = BatchMeta {
-            topic: self.topic.clone(),
-            partition: self.partition,
-            producer_id: view.producer_id(),
-            producer_epoch: view.producer_epoch(),
-            base_sequence: view.base_sequence(),
-            record_count: view.record_count() as i32,
-            byte_start: 0,
-            byte_len: 0,
-        };
-        (meta, bytes.to_vec())
     }
 }
 
@@ -393,7 +234,7 @@ impl TopicLog for CoordinatorTopicLog {
 
 static CAPS: BackendCapabilities = BackendCapabilities {
     name: "fjord-coordinator",
-    version: "0.1.0",
+    version: "0.2.0",
     durability: Durability::WalFsync,
     atomic_append: AtomicAppendScope::Partition,
     survives_restart: true,
@@ -412,13 +253,11 @@ static CAPS: BackendCapabilities = BackendCapabilities {
     truncate: false,
 };
 
-/// `LogBackend` over the fjord coordinator + a blob store, with server-side
-/// flush buffering (TD-005).
+/// `LogBackend` over the fjord coordinator + an `object_log::LogEngine`.
 pub struct CoordinatorLogBackend {
     coordinator: Arc<dyn CoordinatorStore>,
-    blob: Arc<dyn BlobStore>,
+    engine: Arc<Engine>,
     topics: Mutex<HashMap<String, Arc<CoordinatorTopicLog>>>,
-    flusher: Arc<Flusher>,
 }
 
 impl CoordinatorLogBackend {
@@ -433,34 +272,12 @@ impl CoordinatorLogBackend {
         blob: Arc<dyn BlobStore>,
         cfg: FlushConfig,
     ) -> Self {
-        let flusher = Arc::new(Flusher {
-            coordinator: Arc::clone(&coordinator),
-            blob: Arc::clone(&blob),
-            next_object: AtomicU64::new(0),
-            state: Mutex::new(FlushState::default()),
-            cv: Condvar::new(),
-            cfg,
-        });
-        // Background flush thread. It holds a Weak ref and re-upgrades each cycle,
-        // so when the backend AND all partitions are dropped (strong count → 0)
-        // the thread exits. An in-flight append always holds a partition (hence a
-        // strong ref), so no waiter is ever orphaned.
-        let weak: Weak<Flusher> = Arc::downgrade(&flusher);
-        std::thread::Builder::new()
-            .name("fjord-flush".into())
-            .spawn(move || {
-                while let Some(f) = weak.upgrade() {
-                    f.flush_cycle();
-                    drop(f);
-                }
-            })
-            .expect("spawn flush thread");
-
+        let sequencer = Arc::new(CoordinatorSequencer::new(Arc::clone(&coordinator)));
+        let engine = Arc::new(LogEngine::new(blob, sequencer, cfg.into(), "seg/"));
         Self {
             coordinator,
-            blob,
+            engine,
             topics: Mutex::new(HashMap::new()),
-            flusher,
         }
     }
 
@@ -471,8 +288,7 @@ impl CoordinatorLogBackend {
                     topic: name.to_string(),
                     partition: p,
                     coordinator: Arc::clone(&self.coordinator),
-                    blob: Arc::clone(&self.blob),
-                    flusher: Arc::clone(&self.flusher),
+                    engine: Arc::clone(&self.engine),
                 })
             })
             .collect();
@@ -483,29 +299,20 @@ impl CoordinatorLogBackend {
         })
     }
 
-    fn prepare_append(
-        &self,
-        topic_name: &str,
-        partition: i32,
-        records: &[u8],
-    ) -> Result<(Arc<Flusher>, BatchMeta, Vec<u8>)> {
-        let view = RecordBatchView::from_bytes(records)?;
-        let topic = self
+    fn partition_log(&self, topic: &str, partition: i32) -> Result<Arc<CoordinatorPartitionLog>> {
+        let t = self
             .topics
             .lock()
-            .get(topic_name)
+            .get(topic)
             .cloned()
-            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
-        let partition = topic
-            .partitions
+            .ok_or_else(|| HeimqError::TopicNotFound(topic.to_string()))?;
+        t.partitions
             .get(partition as usize)
             .cloned()
             .ok_or_else(|| HeimqError::PartitionNotFound {
-                topic: topic_name.to_string(),
+                topic: topic.to_string(),
                 partition,
-            })?;
-        let (meta, bytes) = partition.prepare_append(&view, Some(records));
-        Ok((Arc::clone(&partition.flusher), meta, bytes))
+            })
     }
 }
 
@@ -517,10 +324,6 @@ impl LogBackend for CoordinatorLogBackend {
                 "topic '{name}' already exists"
             )));
         }
-        // A shared coordinator may already hold the topic (e.g. a broker
-        // restart, or another stateless broker created it). That is not an
-        // error here — we just rebuild the local serving wrapper. Only a true
-        // duplicate within this backend instance (checked above) is rejected.
         match self.coordinator.create_topic(name, num_partitions) {
             Ok(()) => {}
             Err(CoordinatorError::TopicExists(_)) => {}
@@ -558,8 +361,6 @@ impl LogBackend for CoordinatorLogBackend {
         if let Some(t) = self.topics.lock().get(name) {
             return Arc::clone(t) as Arc<dyn TopicLog>;
         }
-        // create_topic handles the coordinator + map insert; ignore an
-        // already-exists race by re-reading.
         let _ = self.create_topic(name, num_partitions);
         self.topic(name).expect("topic exists after create")
     }
@@ -581,8 +382,9 @@ impl LogBackend for CoordinatorLogBackend {
     }
 
     fn append(&self, topic_name: &str, partition: i32, records: &[u8]) -> Result<(i64, i64)> {
-        let (flusher, meta, bytes) = self.prepare_append(topic_name, partition, records)?;
-        flusher.append(meta, bytes)
+        let view = RecordBatchView::from_bytes(records)?;
+        self.partition_log(topic_name, partition)?
+            .append(&view, Some(records))
     }
 
     fn append_async<'a>(
@@ -591,11 +393,15 @@ impl LogBackend for CoordinatorLogBackend {
         partition: i32,
         records: &'a [u8],
     ) -> AppendFuture<'a> {
-        let (flusher, meta, bytes) = match self.prepare_append(topic_name, partition, records) {
-            Ok(prepared) => prepared,
-            Err(err) => return Box::pin(std::future::ready(Err(err))),
+        let view = match RecordBatchView::from_bytes(records) {
+            Ok(v) => v,
+            Err(e) => return Box::pin(std::future::ready(Err(e))),
         };
-        flusher.append_async(meta, bytes)
+        let engine = match self.partition_log(topic_name, partition) {
+            Ok(p) => Arc::clone(&p.engine),
+            Err(e) => return Box::pin(std::future::ready(Err(e))),
+        };
+        produce_future(engine, topic_name, partition, &view, Some(records))
     }
 
     fn fetch(
@@ -605,12 +411,11 @@ impl LogBackend for CoordinatorLogBackend {
         offset: i64,
         max_bytes: i32,
     ) -> Result<(Vec<u8>, i64)> {
-        let topic = self
-            .topic(topic_name)
-            .ok_or_else(|| HeimqError::TopicNotFound(topic_name.to_string()))?;
-        topic
-            .partition(partition)?
-            .read(offset, max_bytes.max(0) as usize, FetchWait::Immediate)
+        self.partition_log(topic_name, partition)?.read(
+            offset,
+            max_bytes.max(0) as usize,
+            FetchWait::Immediate,
+        )
     }
 
     fn high_watermark(&self, topic_name: &str, partition: i32) -> Result<i64> {
@@ -628,7 +433,7 @@ impl LogBackend for CoordinatorLogBackend {
 
 static OFFSET_CAPS: OffsetStoreCapabilities = OffsetStoreCapabilities {
     name: "fjord-coordinator",
-    version: "0.1.0",
+    version: "0.2.0",
     durability: Durability::WalFsync,
     survives_restart: true,
 };
@@ -707,7 +512,7 @@ impl OffsetStore for CoordinatorOffsetStore {
 mod tests {
     use super::*;
     use fjord_coordinator::memory::MemoryCoordinator;
-    use fjord_log::MemoryBlobStore;
+    use object_log::MemoryBlobStore;
 
     fn backend() -> (Arc<dyn CoordinatorStore>, CoordinatorLogBackend) {
         let coord: Arc<dyn CoordinatorStore> = Arc::new(MemoryCoordinator::new());
@@ -723,10 +528,7 @@ mod tests {
         assert_eq!(be.list_topics(), vec!["t".to_string()]);
         assert_eq!(be.get_all_topic_metadata(), vec![("t".to_string(), 3)]);
         assert_eq!(be.topic("t").unwrap().num_partitions(), 3);
-        assert!(
-            be.create_topic("t", 3).is_err(),
-            "duplicate create rejected"
-        );
+        assert!(be.create_topic("t", 3).is_err(), "duplicate create rejected");
         assert!(be.topic("missing").is_none());
     }
 
@@ -737,13 +539,12 @@ mod tests {
         assert!(os.fetch("g", "t", 0).is_none());
         os.commit("g", "t", 0, 42, -1, None).unwrap();
         assert_eq!(os.fetch("g", "t", 0).unwrap().offset, 42);
-        // Visible directly on the coordinator too.
         assert_eq!(coord.offset_fetch("g", "t", 0).unwrap(), Some(42));
     }
 
     #[test]
     fn append_fetch_round_trip_through_heimq_traits() {
-        use bytes::{Bytes, BytesMut};
+        use bytes::BytesMut;
         use kafka_protocol::records::{
             Compression, Record, RecordBatchDecoder, RecordBatchEncoder, RecordEncodeOptions,
             TimestampType,
@@ -752,7 +553,6 @@ mod tests {
         let (_c, be) = backend();
         be.create_topic("t", 1).unwrap();
 
-        // Build a valid Kafka v2 record batch with one record via kafka-protocol.
         let rec = Record {
             transactional: false,
             control: false,
@@ -779,23 +579,17 @@ mod tests {
         .expect("encode batch");
         let raw = buf.to_vec();
 
-        // Append through the heimq LogBackend → coordinator + blob.
         let (base, count) = be.append("t", 0, &raw).unwrap();
         assert_eq!(base, 0);
         assert_eq!(count, 1);
         assert_eq!(be.high_watermark("t", 0).unwrap(), 1);
 
-        // Fetch through the heimq LogBackend and decode the record back.
         let (bytes, hwm) = be.fetch("t", 0, 0, 1_000_000).unwrap();
         assert_eq!(hwm, 1);
         let mut b = Bytes::from(bytes);
         let decoded = RecordBatchDecoder::decode(&mut b).expect("decode batch");
         assert_eq!(decoded.records.len(), 1);
-        assert_eq!(
-            decoded.records[0].value.as_deref(),
-            Some(&b"hello-fjord"[..])
-        );
-        // base_offset was patched from the coordinator index.
+        assert_eq!(decoded.records[0].value.as_deref(), Some(&b"hello-fjord"[..]));
         assert_eq!(decoded.records[0].offset, 0);
     }
 }

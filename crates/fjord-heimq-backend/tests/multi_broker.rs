@@ -19,7 +19,7 @@ use std::time::Duration;
 use fjord_broker::{ClusterMembership, FjordMultiBrokerClusterView};
 use fjord_coordinator::{memory::MemoryCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore};
-use fjord_log::{BlobStore, MemoryBlobStore};
+use object_log::{BlobStore, MemoryBlobStore};
 use heimq::server::Server;
 use heimq_broker::storage::{BrokerInfo, LogBackend};
 use rdkafka::consumer::{BaseConsumer, Consumer};

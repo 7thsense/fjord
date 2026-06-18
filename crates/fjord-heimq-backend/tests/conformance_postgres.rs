@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use fjord_coordinator::{postgres::PgCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore};
-use fjord_log::{BlobStore, MemoryBlobStore};
+use object_log::{BlobStore, MemoryBlobStore};
 use heimq_broker::storage::{LogBackend, PartitionLog};
 use heimq_testkit::suites;
 

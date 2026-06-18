@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use fjord_coordinator::{memory::MemoryCoordinator, postgres::PgCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore};
-use fjord_log::{s3::S3BlobStore, BlobStore, MemoryBlobStore};
+use object_log::{BlobStore, MemoryBlobStore, S3BlobStore};
 use heimq::server::Server;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};

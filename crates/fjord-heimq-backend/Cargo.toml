@@ -11,9 +11,10 @@ description = "heimq-broker backend (LogBackend/OffsetStore) over the fjord coor
 [dependencies]
 heimq-broker = { git = "https://github.com/easel/heimq", rev = "da4b87f" }
 fjord-coordinator = { path = "../fjord-coordinator" }
-fjord-log = { path = "../fjord-log" }
+object-log = { git = "https://github.com/easel/object-log", rev = "973d839", features = ["s3"] } # repinned to the 0.2.0 rev in S5(d)
 bytes = "1"
 parking_lot = "0.12"
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [features]
 default = []
