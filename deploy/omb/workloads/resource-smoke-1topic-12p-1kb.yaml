@@ -1,0 +1,11 @@
+name: fjord resource smoke - 1 topic / 12 partitions / 1KiB
+topics: 1
+partitionsPerTopic: 12
+messageSize: 1024
+payloadFile: "payload/payload-1Kb.data"
+subscriptionsPerTopic: 1
+consumerPerSubscription: 1
+producersPerTopic: 1
+producerRate: 1000
+consumerBacklogSizeGB: 0
+testDurationMinutes: 1
