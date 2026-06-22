@@ -9,7 +9,7 @@ repository.workspace = true
 description = "CoordinatorStore trait (COORD-001) and in-memory reference backend for fjord"
 
 [dependencies]
-object-log = { git = "https://github.com/easel/object-log", rev = "0adc8b0" } # repinned to the 0.2.0 rev in S5(d)
+object-log = { git = "https://github.com/easel/object-log", rev = "bb5dd2e741910c5bdf44d985de8c75cb92186f11" }
 parking_lot = "0.12"
 tokio-postgres = { version = "0.7", optional = true }
 deadpool-postgres = { version = "0.14", optional = true }

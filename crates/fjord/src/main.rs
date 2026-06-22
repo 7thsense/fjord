@@ -95,6 +95,13 @@ struct Args {
     /// Flush once this many batches are buffered.
     #[arg(long, env = "FJORD_FLUSH_MAX_BATCHES", default_value_t = 10_000)]
     flush_max_batches: usize,
+    /// Maximum number of sealed objects that may be PUT concurrently.
+    #[arg(long, env = "FJORD_FLUSH_MAX_INFLIGHT", default_value_t = 4)]
+    flush_max_inflight: usize,
+    /// Maximum queued plus in-flight payload bytes before producers are
+    /// backpressured.
+    #[arg(long, env = "FJORD_FLUSH_MAX_BUFFERED_BYTES", default_value_t = 512 * 1024 * 1024)]
+    flush_max_buffered_bytes: usize,
 }
 
 fn parse_peer(s: &str) -> Result<BrokerInfo> {
@@ -180,11 +187,15 @@ async fn main() -> Result<()> {
         timeout: std::time::Duration::from_millis(args.flush_timeout_ms),
         max_bytes: args.flush_max_bytes,
         max_batches: args.flush_max_batches,
+        max_inflight_flushes: args.flush_max_inflight,
+        max_buffered_bytes: args.flush_max_buffered_bytes,
     };
     info!(
         flush_timeout_ms = args.flush_timeout_ms,
         flush_max_bytes = args.flush_max_bytes,
         flush_max_batches = args.flush_max_batches,
+        flush_max_inflight = args.flush_max_inflight,
+        flush_max_buffered_bytes = args.flush_max_buffered_bytes,
         "flush dial"
     );
     let backend: Arc<dyn LogBackend> = Arc::new(CoordinatorLogBackend::with_flush_config(

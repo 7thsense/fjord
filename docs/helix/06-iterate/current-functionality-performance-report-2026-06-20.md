@@ -37,10 +37,13 @@ The resource-utilization thesis is directionally supported, not proven. Fjord br
 | Chaos scripts | Loaded `fjord:dev` but deployed default chart image | Set image repository/tag/pull policy in baseline and chaos scripts |
 | Multi-broker durability | Brokers shared object key prefix `seg/`, allowing shared-store object overwrites | Added unique per-backend object prefixes |
 | Fetch path | Concatenated Kafka record batches could be stamped only at first batch | Stamp every v2 RecordBatch in fetched payloads |
-| Garage S3 | Garage GET hung through the AWS SDK path | In local `object-log`, set S3 checksum behavior to `WHEN_REQUIRED`, add SDK timeouts, and enable full-object GET fallback for Garage range reads |
+| Garage S3 | Garage GET hung through the AWS SDK path | Published `object-log` S3 hardening at `bb5dd2e741910c5bdf44d985de8c75cb92186f11`: checksum behavior `WHEN_REQUIRED`, SDK timeouts, and full-object GET fallback for Garage range reads |
 | Scale harness | Durable perf held all delivery futures in memory and hardcoded 50k records | Added env-configured records, partitions, size, in-flight window, deadline, and Garage-only mode |
 
-Note: the Garage S3 compatibility changes are in the sibling local checkout `/Users/erik/Projects/object-log/src/s3.rs`, used by this workspace through `.cargo/config.toml` path overrides. They should be upstreamed or pinned before CI/clean checkouts can reproduce Garage results.
+Note: the Garage S3 compatibility changes are now pushed to
+`https://github.com/easel/object-log` and Fjord pins
+`bb5dd2e741910c5bdf44d985de8c75cb92186f11` directly in Cargo manifests. Clean
+checkouts use remote Git dependencies directly.
 
 ## Tested Workflows and Scale
 

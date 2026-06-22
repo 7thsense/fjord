@@ -34,6 +34,7 @@ async fn run_one(max_bytes: usize) -> (usize, usize, f64) {
             timeout: Duration::from_millis(FLUSH_MS),
             max_bytes,
             max_batches: 1_000_000, // let max_bytes govern object size
+            ..FlushConfig::default()
         },
     ));
     let topic = format!("cost-{max_bytes}");

@@ -118,6 +118,12 @@ fn durable_flush_config() -> FlushConfig {
     cfg.timeout = Duration::from_millis(env_usize("FJORD_DURABLE_FLUSH_LINGER_MS", 0) as u64);
     cfg.max_bytes = env_usize("FJORD_DURABLE_FLUSH_MAX_BYTES", cfg.max_bytes);
     cfg.max_batches = env_usize("FJORD_DURABLE_FLUSH_MAX_BATCHES", cfg.max_batches);
+    cfg.max_inflight_flushes =
+        env_usize("FJORD_DURABLE_FLUSH_MAX_INFLIGHT", cfg.max_inflight_flushes);
+    cfg.max_buffered_bytes = env_usize(
+        "FJORD_DURABLE_FLUSH_MAX_BUFFERED_BYTES",
+        cfg.max_buffered_bytes,
+    );
     cfg
 }
 
@@ -972,6 +978,8 @@ fn write_manifest(
     deadline_secs: u64,
     flush_linger_ms: usize,
     flush_max_bytes: usize,
+    flush_inflight: usize,
+    flush_max_buffered_bytes: usize,
     producer_linger_ms: usize,
     producer_batch_size: usize,
     fault_profile: FaultProfile,
@@ -993,6 +1001,8 @@ fn write_manifest(
                 "  \"consumer_deadline_secs\":{},\n",
                 "  \"flush_linger_ms\":{},\n",
                 "  \"flush_max_bytes\":{},\n",
+                "  \"flush_inflight\":{},\n",
+                "  \"flush_max_buffered_bytes\":{},\n",
                 "  \"producer_linger_ms\":{},\n",
                 "  \"producer_batch_size\":{},\n",
                 "  \"fault_profile\":\"{}\"\n",
@@ -1010,6 +1020,8 @@ fn write_manifest(
             deadline_secs,
             flush_linger_ms,
             flush_max_bytes,
+            flush_inflight,
+            flush_max_buffered_bytes,
             producer_linger_ms,
             producer_batch_size,
             json_escape(fault_profile.as_str())
@@ -1096,6 +1108,8 @@ async fn durable_scale_proof(pg_url: &str) {
     let flush_linger_ms = env_usize("FJORD_DURABLE_FLUSH_LINGER_MS", 0);
     let flush_cfg = durable_flush_config();
     let flush_max_bytes = flush_cfg.max_bytes;
+    let flush_inflight = flush_cfg.max_inflight_flushes;
+    let flush_max_buffered_bytes = flush_cfg.max_buffered_bytes;
     let producer_linger_ms = env_usize("FJORD_DURABLE_PRODUCER_LINGER_MS", 10);
     let producer_batch_size = env_usize("FJORD_DURABLE_PRODUCER_BATCH_SIZE", 1_048_576);
     let consume_deadline_secs = std::env::var("FJORD_DURABLE_CONSUME_DEADLINE_SECS")
@@ -1122,6 +1136,8 @@ async fn durable_scale_proof(pg_url: &str) {
         consume_deadline_secs,
         flush_linger_ms,
         flush_max_bytes,
+        flush_inflight,
+        flush_max_buffered_bytes,
         producer_linger_ms,
         producer_batch_size,
         fault_profile,

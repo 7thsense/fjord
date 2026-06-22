@@ -36,6 +36,7 @@ async fn server_side_flush_coalesces_concurrent_producers() {
             timeout: Duration::from_millis(10),
             max_bytes: 16 << 20,
             max_batches: 1_000_000,
+            ..FlushConfig::default()
         },
     ));
 

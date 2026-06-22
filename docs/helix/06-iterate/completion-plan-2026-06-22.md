@@ -149,11 +149,11 @@ Validation:
 
 Acceptance:
 
-- `.cargo/config.toml` remains a local convenience only; the committed manifest
-  path is reproducible without sibling checkout overrides.
-- Fjord is not pinned to a local-only object-log SHA. If the needed object-log
-  commit is not remote-reachable and pushing is not authorized, this step stops
-  with a documented blocker instead of creating an unreproducible manifest.
+- Fjord builds from remote Git dependency pins without local checkout overrides.
+- Fjord is pinned only to remote-reachable `object-log` and `heimq` SHAs. If a
+  needed dependency commit is not remote-reachable and pushing is not authorized,
+  this step stops with a documented blocker instead of creating an
+  unreproducible manifest.
 
 ### Step 4 - Harden Benchmark Harnesses and Evidence Capture
 

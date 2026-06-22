@@ -18,9 +18,10 @@ lanes, and record blockers.
 ## Delivered Work
 
 - Added and committed `completion-plan-2026-06-22`.
-- Prepared sibling `object-log` commit `d6b2d97` with bounded flush/S3 hardening
-  and validated it locally with `cargo fmt --all -- --check` and
-  `cargo test --all-features`.
+- Prepared and pushed `object-log` commits through `bb5dd2e741910c5bdf44d985de8c75cb92186f11`
+  with bounded flush/S3 hardening, S3 saturation examples, and validation via
+  `cargo fmt --all -- --check`, `cargo test --all-features`, and
+  `cargo check --all-features --examples`.
 - Committed Fjord validation tranche `bcfe0a5` after removing references to
   unpublished dependency APIs so clean checkouts still build from published Git
   dependency SHAs.
@@ -32,12 +33,11 @@ lanes, and record blockers.
 - The plan originally sequenced the Fjord validation tranche before dependency
   work. Clean validation showed the dirty Fjord work used unpublished
   `object-log` and `heimq` APIs, so dependency compatibility was handled first.
-- The local `object-log` improvement was not pinned from Fjord because
-  `d6b2d97` is not reachable from `https://github.com/easel/object-log` and
-  remote push/PR publication was not authorized.
-- The published Fjord commit keeps the active scale harness on published
-  dependency APIs. The unpublished object-log buffering improvements remain
-  tracked by `fjord-bcf1e25e`.
+- The initial local `object-log` improvement was not pinned until it became
+  remote-reachable. It is now pushed and Fjord pins
+  `bb5dd2e741910c5bdf44d985de8c75cb92186f11`.
+- Fjord now also pins remote `heimq`
+  `cd17c1869c55ddd94b678e19df9ad08b21259372`.
 
 ## Validation Evidence
 
@@ -46,8 +46,7 @@ lanes, and record blockers.
 - Object-log local validation:
   `cargo fmt --all -- --check`
   `cargo test --all-features`
-- Fjord clean dependency validation with `.cargo/config.toml` temporarily
-  disabled:
+- Fjord clean dependency validation with remote Git dependency pins:
   `cargo clippy --workspace --all-targets -- -D warnings`
   `cargo test --workspace`
   `cargo test -p fjord-coordinator --features postgres-backend`
@@ -61,8 +60,8 @@ lanes, and record blockers.
 
 ## Remaining Risks
 
-- `object-log` commit `d6b2d97` is local-only. Clean reproducibility requires a
-  remote-reachable SHA before Fjord can pin to the buffering/S3 hardening work.
+- Dependency reproducibility is fixed for `object-log` and `heimq`; remaining
+  risk is external evidence execution, not local sibling checkout reliance.
 - The 100M Garage lane has not been run in this session.
 - Fjord/Kafka/Redpanda OMB comparator profiles are scaffolded but not executed.
 - Release-mode durable latency/perf remains open.

@@ -24,7 +24,9 @@ use heimq_broker::storage::{
     Durability, FetchWait, LogBackend, OffsetStore, OffsetStoreCapabilities, PartitionLog,
     RecordBatchHeader, RecordBatchView, RetentionMode, TopicConfig, TopicLog,
 };
-use object_log::{BlobStore, Durability as Ack, FlushConfig as EngineFlushConfig, LogEngine};
+use object_log::{
+    BlobStore, BufferStats, Durability as Ack, FlushConfig as EngineFlushConfig, LogEngine,
+};
 use parking_lot::Mutex;
 use tokio::runtime::{Handle, Runtime};
 
@@ -45,6 +47,11 @@ pub struct FlushConfig {
     pub max_bytes: usize,
     /// Flush once this many batches are buffered (high; `max_bytes` governs size).
     pub max_batches: usize,
+    /// Maximum number of sealed objects that may be PUT concurrently.
+    pub max_inflight_flushes: usize,
+    /// Maximum queued plus in-flight payload bytes held by the engine before
+    /// producers are backpressured.
+    pub max_buffered_bytes: usize,
 }
 
 impl Default for FlushConfig {
@@ -53,6 +60,8 @@ impl Default for FlushConfig {
             timeout: std::time::Duration::ZERO,
             max_bytes: 128 * 1024 * 1024,
             max_batches: 1_000_000,
+            max_inflight_flushes: 4,
+            max_buffered_bytes: 512 * 1024 * 1024,
         }
     }
 }
@@ -63,6 +72,8 @@ impl From<FlushConfig> for EngineFlushConfig {
             max_bytes: c.max_bytes,
             max_batches: c.max_batches,
             linger: c.timeout,
+            max_inflight_flushes: c.max_inflight_flushes,
+            max_buffered_bytes: c.max_buffered_bytes,
         }
     }
 }
@@ -416,6 +427,11 @@ impl CoordinatorLogBackend {
                 topic: topic.to_string(),
                 partition,
             })
+    }
+
+    /// Snapshot of the underlying object-log buffering envelope.
+    pub fn buffer_stats(&self) -> BufferStats {
+        self.engine.buffer_stats()
     }
 }
 

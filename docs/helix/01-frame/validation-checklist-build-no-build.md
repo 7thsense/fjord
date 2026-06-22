@@ -75,8 +75,10 @@ of the product-category differentiation.
   survival, idempotent-producer coverage, EOS coordinator invariants,
   fault-injection schedules, Garage S3 full-stack smoke coverage, and
   throughput/cost profiles (`PHASE-4-RESULTS-2026-06-15`).
-- The workspace imports `object-log` directly at rev `0adc8b0` and keeps Kafka
-  protocol behavior in Fjord/heimq-facing crates, so object-log remains reusable
+- The workspace imports `object-log` directly at rev
+  `bb5dd2e741910c5bdf44d985de8c75cb92186f11` and keeps Kafka protocol behavior
+  in Fjord/heimq-facing crates pinned to
+  `cd17c1869c55ddd94b678e19df9ad08b21259372`, so object-log remains reusable
   without Kafka protocol coupling.
 
 ### Comparator Snapshot
