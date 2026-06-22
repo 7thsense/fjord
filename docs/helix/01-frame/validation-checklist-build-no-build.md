@@ -31,17 +31,89 @@ Gates 1–4 are hard: any failure is a **No-Go** (stop or redirect, per ADR-001
 instead). Gates 5–7 failures force a scope redirect and re-review before
 further build milestones.
 
-## Result
+## Question
 
-Pending — first review not yet run (scheduled before M3).
+Should Fjord continue as a general-purpose Kafka-compatible object-storage-backed
+streaming product after its Phase 4 evidence, or redirect/stop because current
+prior art now covers the product category?
+
+## Scope
+
+- As of: 2026-06-19.
+- Local sources inspected: implementation/test evidence in this workspace,
+  `.ddx/beads.jsonl`, Phase 4 results, Cargo metadata, and DDX graph checks.
+- External sources inspected: current official docs/project pages for
+  WarpStream, AutoMQ, Bufstream, Apache Kafka KIP-1150, plus Aiven/Instaclustr
+  status notes for KIP acceptance.
+- Non-scope: production customer benchmarks, paid SKU terms, and private
+  roadmaps for the comparator systems.
+
+## Recommendation
+
+First review completed on 2026-06-19. Decision: **Redirect**.
+
+Fjord should not continue as a general-purpose Kafka replacement product in
+this bead set. It has proven the object-log-backed broker path and should remain
+valuable as an open, self-hostable reference implementation and compatibility
+testbed for `object-log`, pqueue, and Niflheim-style deployments. The broader
+market position is no longer strong enough to justify a new full Kafka product:
+WarpStream, AutoMQ, Bufstream, and upstream Kafka Diskless Topics now cover most
+of the product-category differentiation.
 
 | Review date | Milestone | Gates passed | Decision | Evidence link |
 |-------------|-----------|--------------|----------|---------------|
-| — | pre-M3 | — | — | — |
+| 2026-06-19 | post-M6 / Phase 4 | 1, 3, 4, 7 pass; 2 and 5 pass with disclosed coordinator caveat; 6 fails for general-product positioning | Redirect: keep Fjord as an object-log validation/reference system, stop positioning it as a standalone Kafka replacement | This checklist; `docs/helix/06-iterate/PHASE-4-RESULTS-2026-06-15.md` |
+
+## Evidence
+
+### Local Evidence
+
+- `cargo test` passed on 2026-06-19: 77 non-ignored tests across the workspace,
+  with Docker/perf-only tests intentionally ignored by their harness gates.
+- `cargo clippy --all-targets -- -D warnings` passed on 2026-06-19.
+- Phase 4 evidence records Kafka-client produce/consume, consumer-group offset
+  survival, idempotent-producer coverage, EOS coordinator invariants,
+  fault-injection schedules, Garage S3 full-stack smoke coverage, and
+  throughput/cost profiles (`PHASE-4-RESULTS-2026-06-15`).
+- The workspace imports `object-log` directly at rev `0adc8b0` and keeps Kafka
+  protocol behavior in Fjord/heimq-facing crates, so object-log remains reusable
+  without Kafka protocol coupling.
+
+### Comparator Snapshot
+
+| System | Current evidence inspected | Effect on Fjord differentiation |
+|--------|----------------------------|----------------------------------|
+| WarpStream | Current docs describe a single stateless Agent binary that speaks Kafka protocol, writes to object storage, and uses WarpStream Cloud Metadata Store; deployment docs require an `agentKey`, `defaultVirtualClusterID`, and `region` from the WarpStream Admin Console. Sources: <https://docs.warpstream.com/warpstream/overview/architecture>, <https://docs.warpstream.com/warpstream/agent-setup/deploy>. | Fjord still differs by not requiring a hosted WarpStream control plane, but the stateless-agent/object-storage architecture itself is not unique. |
+| AutoMQ | Current docs and GitHub README describe a Kafka-compatible, stateless broker architecture over S3-compatible storage, S3Stream, WAL/object storage, rack-aware routing, Apache-2.0 licensing, and a latest release of 1.7.0 on 2026-06-04. Sources: <https://docs.automq.com/automq/architecture/overview>, <https://github.com/AutoMQ/automq>. | AutoMQ now overlaps Fjord's open/self-hostable and object-storage-backed goals. Fjord's remaining material difference is object-log reuse and Rust/smaller-scope implementation, not product-category uniqueness. |
+| Bufstream | Current Bufstream docs describe object storage plus PostgreSQL/Cloud Spanner/etcd metadata coordination, any-broker produce, heterogeneous intake files, and ack after object-storage + metadata writes. Buf announced on 2026-05-08 that CoreWeave acquired Bufstream for internal platform use. Sources: <https://docs.bufbuild.ru/bufstream/architecture/kafka-flow/>, <https://buf.build/blog/coreweave-acquires-bufstream>. | Bufstream strongly overlaps the Postgres/object-storage coordination shape. Acquisition reduces public product uncertainty but does not restore Fjord's differentiation as a general replacement. |
+| Apache Kafka Diskless Topics | KIP-1150 says Kafka should add diskless topics using object storage, reduced broker disk usage, pluggable storage, and per-topic latency/cost tradeoffs; Aiven/Instaclustr report the KIP was accepted on 2026-03-02 and that KIP-1163/KIP-1164 remain the implementation path. Sources: <https://cwiki.apache.org/confluence/display/KAFKA/KIP-1150%3A%2BDiskless%2BTopics>, <https://aiven.io/blog/kip-1150-accepted-and-the-road-ahead>, <https://www.instaclustr.com/support/documentation/announcements/apache-kafka-and-kafka-connect/kafka-diskless-proposals-status-insights/>. | Upstream Kafka is moving directly into Fjord's target category. Fjord remains useful as a focused implementation and object-log exerciser, but not as a strategic clone of upstream's roadmap. |
+
+### Gate Disposition
+
+| Gate | Result | Rationale |
+|------|--------|-----------|
+| 1. No required hosted control plane | Pass | Fjord runs from source with self-hosted coordinator/object-store choices; unlike WarpStream, no admin-console-issued metadata-plane identity is required. |
+| 2. Object-storage-first durability | Pass with caveat | Record data durability is object-log/object storage. Durable metadata currently uses the self-hosted coordinator path, which is a documented exception rather than hidden broker-local state. |
+| 3. object-log reuse without fork | Pass | Fjord depends on `object-log`; no duplicated durable segment/manifest core is introduced in Fjord. |
+| 4. Open and self-hostable | Pass | Workspace package metadata declares MIT licensing, and the core implementation is in this repo with self-hosted dependencies. README remains stale and should be refreshed before any external release. |
+| 5. Simpler operating envelope | Pass with caveat | The operational envelope is one broker binary plus object storage plus a self-hosted coordinator. It is simpler than classic Kafka operations, but not materially simpler than Bufstream or AutoMQ for general users. |
+| 6. Comparator delta still material | Fail for general product | The category is now covered by hosted/BYOC WarpStream, Apache-licensed AutoMQ, Bufstream, and accepted upstream Kafka Diskless Topics. Fjord's meaningful delta is internal reuse/testbed value, not a standalone product thesis. |
+| 7. Latency/cost profile honest and viable | Pass | Phase 4 records S3 PUT count, batching/cost dials, real-S3 throughput, and latency caveats instead of hiding the object-storage tradeoff. |
+
+### Staleness Check
+
+`ddx doc stale --json` on 2026-06-19 reports active documents as stale because
+review hashes have not been stamped across the existing HELIX graph. `ddx doc
+validate` also reports an existing dependency cycle. Those are DDX graph hygiene
+issues, not stale technical claims introduced by this review. One concrete
+broken dependency id surfaced by validation (`td-metadata-routing-and-coordination`)
+was corrected to `td-metadata-routing-coordination` in TD-007.
 
 ## Required Follow-Up
 
-- Run the pre-M3 review and record the row above; close or re-scope
-  `fjord-42864fe0` accordingly.
-- SPIKE-001 results feed gate 2 (metadata path) and gate 7 (cost profile).
-- A No-Go decision is recorded as a new ADR superseding ADR-001's framing.
+- Close `fjord-42864fe0` as redirected.
+- Reap `fjord-66bad250` after the review bead closes; all current child beads
+  are terminal.
+- Do not open a new general Kafka-replacement compatibility milestone in this
+  tracker. Future Fjord work should start from a new scope statement if it is
+  needed as an `object-log` conformance harness or integration reference.

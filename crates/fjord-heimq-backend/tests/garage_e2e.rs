@@ -12,6 +12,7 @@ use std::time::Duration;
 use fjord_coordinator::{memory::MemoryCoordinator, CoordinatorStore};
 use fjord_heimq_backend::{CoordinatorLogBackend, CoordinatorOffsetStore};
 use heimq::server::Server;
+use heimq_broker::storage::LogBackend;
 use object_log::BlobStore;
 use object_log::S3BlobStore;
 use rdkafka::consumer::{BaseConsumer, Consumer};
@@ -45,12 +46,14 @@ async fn rdkafka_over_garage_s3_roundtrip() {
         &endpoint, &region, &bucket, &key_id, &secret,
     ));
     let backend = Arc::new(CoordinatorLogBackend::new(Arc::clone(&coord), blob));
+    let log_backend: Arc<dyn LogBackend> = backend.clone();
     let offsets: Arc<dyn heimq_broker::storage::OffsetStore> =
         Arc::new(CoordinatorOffsetStore::new(Arc::clone(&coord)));
-    let server = Server::with_backends(config, backend, offsets).expect("server");
+    let server = Server::with_backends(config, log_backend, offsets).expect("server");
     let bootstrap = format!("127.0.0.1:{port}");
     tokio::spawn(async move { server.run().await.ok() });
     tokio::time::sleep(Duration::from_millis(300)).await;
+    eprintln!("garage_e2e: server started on {bootstrap}, topic={topic}");
 
     // Produce 20 records via a real Kafka client → stored in Garage S3.
     let producer: FutureProducer = ClientConfig::new()
@@ -58,6 +61,7 @@ async fn rdkafka_over_garage_s3_roundtrip() {
         .set("message.timeout.ms", "20000")
         .create()
         .expect("producer");
+    eprintln!("garage_e2e: producing 20 records");
     for i in 0..20 {
         producer
             .send(
@@ -69,10 +73,21 @@ async fn rdkafka_over_garage_s3_roundtrip() {
             .await
             .expect("send");
     }
+    eprintln!("garage_e2e: produce complete");
+
+    eprintln!("garage_e2e: checking high watermark");
+    let hwm = backend.high_watermark(&topic, 0).expect("high watermark");
+    assert_eq!(hwm, 20, "Garage produce should sequence 20 records");
+    eprintln!("garage_e2e: direct fetch");
+    let (bytes, fetch_hwm) = backend.fetch(&topic, 0, 0, 1 << 20).expect("direct fetch");
+    assert_eq!(fetch_hwm, 20, "direct Garage fetch should report hwm 20");
+    assert!(!bytes.is_empty(), "direct Garage fetch returned no bytes");
+    eprintln!("garage_e2e: direct fetch returned {} bytes", bytes.len());
 
     // Consume them back — bytes served from Garage S3 through the coordinator index.
     let bs = bootstrap.clone();
     let t = topic.clone();
+    eprintln!("garage_e2e: consuming through rdkafka");
     let count = tokio::task::spawn_blocking(move || {
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", &bs)
@@ -93,6 +108,7 @@ async fn rdkafka_over_garage_s3_roundtrip() {
     })
     .await
     .expect("blocking");
+    eprintln!("garage_e2e: consumed {count} records");
 
     assert_eq!(
         count, 20,

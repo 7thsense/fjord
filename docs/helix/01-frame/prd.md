@@ -76,13 +76,13 @@ and fetch/cache design.
 
 ## Compatibility Levels
 
-| Level | Meaning | Initial Status |
-|-------|---------|----------------|
-| L0: documented target | Kafka APIs, semantics, and open questions are specified | In scope now |
-| L1: produce/fetch prototype | Standard clients can produce and fetch simple records for assigned partitions | Future |
-| L2: consumer workflow | Consumer groups, offset commits/fetches, metadata, and rebalances work for common clients | Future |
-| L3: operational Kafka subset | Topic admin, retention, compaction basics, auth/TLS/SASL, metrics, and failure recovery are supported | Future |
-| L4: full compatibility target | Transactions, idempotent producers, read-committed fetch, quotas, ACLs, broad API/version coverage | Future |
+| Level | Meaning | Closure Evidence |
+|-------|---------|------------------|
+| L0: documented target | Kafka APIs, semantics, and open questions are specified | API-001 + TD matrix reviewed |
+| L1: produce/fetch surface | Standard clients can produce and fetch simple records for assigned partitions | Kafka differential + client smoke tests |
+| L2: consumer workflow | Consumer groups, offset commits/fetches, metadata, and rebalances work for common clients | Consumer-group differential + restart/fault tests |
+| L3: operational Kafka subset | Topic admin, retention, compaction basics, auth/TLS/SASL, metrics, and failure recovery are supported | Kafka CLI/admin/security/fault evidence |
+| L4: full compatibility target | Transactions, idempotent producers, read-committed fetch, quotas, ACLs, broad API/version coverage | EOS, Jepsen/history, and broad API/version evidence |
 
 ## Critical Differentiation and Build/No-Build Rationale
 

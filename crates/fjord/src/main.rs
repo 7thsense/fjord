@@ -66,6 +66,12 @@ struct Args {
     s3_access_key: Option<String>,
     #[arg(long, env = "FJORD_S3_SECRET_KEY")]
     s3_secret_key: Option<String>,
+    /// S3 multipart threshold in bytes.
+    #[arg(long, env = "FJORD_S3_MULTIPART_THRESHOLD_BYTES", default_value_t = 16 * 1024 * 1024)]
+    s3_multipart_threshold_bytes: usize,
+    /// S3 multipart part size in bytes.
+    #[arg(long, env = "FJORD_S3_MULTIPART_PART_BYTES", default_value_t = 8 * 1024 * 1024)]
+    s3_multipart_part_bytes: usize,
 
     /// Cluster membership, including self, as repeated `id@host:port`. When
     /// empty the broker runs as a single-node cluster (just itself). In k8s the
@@ -84,7 +90,7 @@ struct Args {
     #[arg(long, env = "FJORD_FLUSH_TIMEOUT_MS", default_value_t = 0)]
     flush_timeout_ms: u64,
     /// Flush once a buffered object reaches this many bytes.
-    #[arg(long, env = "FJORD_FLUSH_MAX_BYTES", default_value_t = 8 * 1024 * 1024)]
+    #[arg(long, env = "FJORD_FLUSH_MAX_BYTES", default_value_t = 128 * 1024 * 1024)]
     flush_max_bytes: usize,
     /// Flush once this many batches are buffered.
     #[arg(long, env = "FJORD_FLUSH_MAX_BATCHES", default_value_t = 10_000)]
@@ -145,13 +151,12 @@ fn build_object_store(args: &Args) -> Result<Arc<dyn BlobStore>> {
                 .as_deref()
                 .context("--s3-secret-key required for s3")?;
             info!(%endpoint, %bucket, region = %args.s3_region, "object store: s3");
-            Ok(Arc::new(S3BlobStore::new(
-                endpoint,
-                &args.s3_region,
-                bucket,
-                ak,
-                sk,
-            )))
+            Ok(Arc::new(
+                S3BlobStore::new(endpoint, &args.s3_region, bucket, ak, sk).with_multipart(
+                    args.s3_multipart_threshold_bytes,
+                    args.s3_multipart_part_bytes,
+                ),
+            ))
         }
         other => bail!("unknown --object-store `{other}` (expected `memory` or `s3`)"),
     }

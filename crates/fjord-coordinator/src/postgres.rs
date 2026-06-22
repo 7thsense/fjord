@@ -225,6 +225,14 @@ impl PgCoordinator {
     }
 }
 
+impl Drop for PgCoordinator {
+    fn drop(&mut self) {
+        if let Some(rt) = self.owned_rt.take() {
+            rt.shutdown_background();
+        }
+    }
+}
+
 impl CoordinatorStore for PgCoordinator {
     fn capabilities(&self) -> CoordinatorCapabilities {
         CoordinatorCapabilities {

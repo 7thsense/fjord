@@ -98,9 +98,13 @@ test_mode() {
     kcat_run "$ns" sh -c "seq 100 | kcat -b $bs -t e2e -P && echo produced"
 
     log "consume them back"
-    local got
-    got="$(kcat_run "$ns" sh -c "kcat -b $bs -t e2e -C -e -q -o beginning 2>/dev/null | wc -l")"
-    got="$(echo "$got" | tr -dc '0-9')"
+    local got=0
+    for _ in $(seq 1 10); do
+        got="$(kcat_run "$ns" sh -c "kcat -b $bs -t e2e -C -e -q -o beginning 2>/dev/null | wc -l")"
+        got="$(echo "$got" | tr -dc '0-9')"
+        [[ "${got:-0}" -eq 100 ]] && break
+        sleep 3
+    done
     echo "consumed: ${got:-0}" >&2
     if [[ "${got:-0}" -ne 100 ]]; then
         echo "FAIL($mode): expected 100 records, got ${got:-0}" >&2

@@ -1,10 +1,12 @@
 # fjord
 
-fjord is planned as a Kafka-compatible streaming system whose durable log data
-is stored in object storage through the embeddable `object-log` core.
+fjord is a Kafka-compatible streaming system whose durable log data is stored in
+object storage through the embeddable `object-log` core.
 
-This repository currently contains HELIX planning and design documents only. No
-Kafka wire protocol or service implementation exists yet.
+Compatibility claims are intentionally limited to the API-001 supported surface
+and the TP-003 parity tests. The repository includes a broker, Helm deployment
+assets, and external-oracle tests that compare the supported surface against
+standard Kafka clients.
 
 ## Documents
 
@@ -27,4 +29,5 @@ Kafka wire protocol or service implementation exists yet.
 - [TD-004: Consumer Group Coordinator](docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md)
 - [TP-001: Kafka Compatibility and Performance Test Plan](docs/helix/03-test/test-plans/TP-001-kafka-compatibility-and-performance.md)
 - [TP-002: Implementation Increment Test Plan](docs/helix/03-test/test-plans/TP-002-implementation-increment-test-plan.md)
+- [TP-003: Verification Strategy](docs/helix/03-test/test-plans/TP-003-verification-strategy-oracles-and-properties.md)
 - [Implementation Plan](docs/helix/04-build/implementation-plan.md)

@@ -87,9 +87,9 @@ The spine of the strategy, modeled on heimq's FEAT-003 parity harness.
 >    weaker-than-advertised, and is disclosed in API-001.
 > 2. The **supported surface is frozen in API-001**, not adjustable per CI run;
 >    narrowing it requires an API-001 change with review, not a test-config edit.
-> 3. The register is a **machine-readable artifact** (`tests/parity/expected-
->    divergences.toml`) with a CI check that fails on any diff not matching a
->    registered entry; each entry carries a reproducer and rationale.
+> 3. Every permitted divergence has an executable reproducer in the external-
+>    oracle suite or an evidence-producing fault/performance harness; any
+>    client-observable diff outside those tests is a failure.
 > 4. Register **additions require external sign-off** (not the author of the
 >    diverging code) and are capped/reviewed — growth of the register is itself a
 >    parity-erosion signal tracked over time.
@@ -227,18 +227,18 @@ The loop terminates only when, with recorded evidence:
    declared in the API-001 capability matrix with client-visible errors, not
    silent gaps.
 
-## Known gaps / dependencies
+## Implementation Closure Beads
 
-- Jepsen harness for fjord is unwritten (Jepsen is Clojure; fjord exposes the
-  Kafka surface, so the existing `jepsen.tests.kafka` workload applies once the
-  gateway accepts connections). Scheduled to land with the consumer-group
-  increment.
-- DST mock object store must model the real object-log/object-store failure
-  semantics (CAS, put-if-absent, partial writes) to be sound; tracked with
-  SPIKE-001's substrate findings.
-- **EOS test depth is gated on TD-008 (the EOS design exists);** the EOS
-  invariants run against each `CoordinatorStore` backend (a transactional backend
-  like Postgres makes `end_txn` one atomic transaction — COORD-001).
+- `bead:jepsen-history`: run Jepsen's Kafka workload or an equivalent history
+  checker against fjord's Kafka surface for lost acknowledged writes, duplicates,
+  offset monotonicity, aborted reads, stuck clients, and transactional anomalies.
+- `bead:dst-real-store-model`: validate the DST mock object-store semantics
+  against the real target store for CAS, put-if-absent, partial writes, transient
+  errors, and read-after-write behavior before using those modeled faults as
+  merge evidence.
+- `bead:eos-backend-matrix`: run the TD-008 EOS invariants against every
+  `CoordinatorStore` backend; transactional backends such as Postgres perform
+  `end_txn` as one coordinator transaction per COORD-001.
 - Two-impl diff assumes Redpanda parity with Kafka on the surface; where they
   disagree, Kafka (O1) is authoritative.
 
@@ -252,3 +252,13 @@ The loop terminates only when, with recorded evidence:
 > failover-unavailability divergence is **no longer** in the expected-divergence
 > register — ADR-008's stateless brokers dissolve it (broker death loses no
 > durable state); the coordinator's HA is the availability floor instead.
+
+## Implemented differential tests
+
+`crates/fjord-heimq-backend/tests/differential.rs` drives fjord and Apache
+Kafka through the same standard client paths and compares client-visible
+results. The suite covers single-partition produce/fetch, explicit
+multi-partition produce/fetch, low/high watermarks, committed-offset resume, and
+idempotent-producer sequencing. Expansion beads above close the remaining
+oracle surfaces by adding Redpanda, EOS histories, durable backend faults, and
+long-run performance evidence.

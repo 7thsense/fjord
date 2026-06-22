@@ -102,9 +102,9 @@ Tracked work lives in `.ddx/beads.jsonl`:
 |------|------------------|
 | `fjord-66bad250` Complete Fjord full-scope delivery | Epic for M1-M6 |
 | `fjord-08961019` Bootstrap Kafka protocol gateway skeleton | M1 |
-| `fjord-80ddb508` Decide and prototype shared kafka-wire extraction | M2 |
+| `fjord-80ddb508` Decide and validate shared kafka-wire extraction | M2 |
 | `fjord-15369989` Integrate object-log for durable Produce and Fetch | M3 |
-| `fjord-f8989544` Implement Fjord metadata and routing prototype | M4 |
+| `fjord-f8989544` Implement Fjord metadata and routing surface | M4 |
 | `fjord-6ab8369e` Implement consumer groups and offset state | M5 |
 | `fjord-e5600c21` Add Fjord compatibility and performance harness | M6 |
 | `fjord-42864fe0` Run Fjord build/no-build differentiation review | Standing gate (FEAT-007); first checkpoint before M3 |
@@ -160,4 +160,3 @@ commands, client versions, object-log version, and backend modes.
   real Kafka/Redpanda on the supported surface, TP-003).
 - Build/no-build review still shows meaningful differentiation from
   WarpStream-class systems (self-hosted, no hosted control plane, no consensus).
-

@@ -8,7 +8,7 @@ ddx:
     - adr-diskless-object-storage-architecture
     - adr-durable-metadata-path
     - td-multiplexed-write-path-and-sequencing
-    - td-metadata-routing-and-coordination
+    - td-metadata-routing-coordination
     - td-consumer-group-coordinator
     - api-kafka-compatibility-surface
     - ar-diskless-rebaseline-2026-06-14

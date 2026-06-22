@@ -9,7 +9,9 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use fjord_coordinator::{
@@ -20,7 +22,7 @@ use heimq_broker::error::{HeimqError, Result};
 use heimq_broker::storage::{
     stamp_base_offset, AppendFuture, AtomicAppendScope, BackendCapabilities, CommittedOffset,
     Durability, FetchWait, LogBackend, OffsetStore, OffsetStoreCapabilities, PartitionLog,
-    RecordBatchView, RetentionMode, TopicConfig, TopicLog,
+    RecordBatchHeader, RecordBatchView, RetentionMode, TopicConfig, TopicLog,
 };
 use object_log::{BlobStore, Durability as Ack, FlushConfig as EngineFlushConfig, LogEngine};
 use parking_lot::Mutex;
@@ -28,6 +30,8 @@ use tokio::runtime::{Handle, Runtime};
 
 /// The engine specialized for fjord's coordinator-backed sequencer.
 type Engine = LogEngine<CoordinatorSequencer>;
+
+static PREFIX_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Server-side flush buffering (TD-005 / ADR-006) — the cost dial. Maps onto
 /// `object_log::FlushConfig`. Many produce requests across partitions coalesce
@@ -47,7 +51,7 @@ impl Default for FlushConfig {
     fn default() -> Self {
         Self {
             timeout: std::time::Duration::ZERO,
-            max_bytes: 8 * 1024 * 1024,
+            max_bytes: 128 * 1024 * 1024,
             max_batches: 1_000_000,
         }
     }
@@ -100,6 +104,40 @@ fn produce_err(e: object_log::ObjectLogError) -> HeimqError {
     HeimqError::Protocol(e.to_string())
 }
 
+fn produce_payload_future(
+    engine: Arc<Engine>,
+    topic: &str,
+    partition: i32,
+    payload: Bytes,
+    meta: ProducerMeta,
+    record_count: i32,
+) -> AppendFuture<'static> {
+    let pk = partition_key(topic, partition);
+    Box::pin(async move {
+        let out = engine
+            .produce(pk, payload, record_count, meta, Ack::Sequenced)
+            .await
+            .map_err(produce_err)?;
+        let base = out.base_offset.unwrap_or(0);
+        Ok((base, record_count as i64))
+    })
+}
+
+fn produce_header_future(
+    engine: Arc<Engine>,
+    topic: &str,
+    partition: i32,
+    payload: Bytes,
+    header: RecordBatchHeader,
+) -> AppendFuture<'static> {
+    let meta = ProducerMeta {
+        producer_id: header.producer_id,
+        producer_epoch: header.producer_epoch,
+        base_sequence: header.base_sequence,
+    };
+    produce_payload_future(engine, topic, partition, payload, meta, header.record_count)
+}
+
 /// Build the produce future for a record batch (shared by sync + async append).
 fn produce_future(
     engine: Arc<Engine>,
@@ -115,15 +153,71 @@ fn produce_future(
         base_sequence: view.base_sequence(),
     };
     let record_count = view.record_count() as i32;
-    let pk = partition_key(topic, partition);
-    Box::pin(async move {
-        let out = engine
-            .produce(pk, payload, record_count, meta, Ack::Sequenced)
-            .await
-            .map_err(produce_err)?;
-        let base = out.base_offset.unwrap_or(0);
-        Ok((base, record_count as i64))
-    })
+    produce_payload_future(engine, topic, partition, payload, meta, record_count)
+}
+
+fn kafka_v2_batch_len(bytes: &[u8], pos: usize) -> Option<usize> {
+    if pos.checked_add(61)? > bytes.len() || bytes.get(pos + 16) != Some(&2) {
+        return None;
+    }
+    let len = i32::from_be_bytes(bytes[pos + 8..pos + 12].try_into().ok()?);
+    if len < 49 {
+        return None;
+    }
+    let total = 12usize.checked_add(len as usize)?;
+    (pos.checked_add(total)? <= bytes.len()).then_some(total)
+}
+
+fn kafka_v2_record_count(bytes: &[u8], pos: usize) -> Option<i64> {
+    let count = i32::from_be_bytes(bytes[pos + 57..pos + 61].try_into().ok()?);
+    (count > 0).then_some(i64::from(count))
+}
+
+fn stamp_all_base_offsets(bytes: &mut [u8], base_offset: i64) {
+    let mut pos = 0usize;
+    let mut next_offset = base_offset;
+    let mut stamped = false;
+
+    while pos < bytes.len() {
+        let Some(total_len) = kafka_v2_batch_len(bytes, pos) else {
+            break;
+        };
+        let count = kafka_v2_record_count(bytes, pos).unwrap_or(1);
+        if stamp_base_offset(&mut bytes[pos..pos + total_len], next_offset) {
+            stamped = true;
+            next_offset += count;
+        }
+        pos += total_len;
+    }
+
+    if !stamped {
+        let _ = stamp_base_offset(bytes, base_offset);
+    }
+}
+
+fn safe_prefix_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn unique_object_prefix() -> String {
+    let host = std::env::var("HOSTNAME").unwrap_or_else(|_| "localhost".to_string());
+    let host = safe_prefix_component(&host);
+    let pid = std::process::id();
+    let counter = PREFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("seg/{host}-{pid}-{counter}-{nanos}/")
 }
 
 /// A partition served by the engine; reads resolve the coordinator index via the
@@ -178,8 +272,9 @@ impl PartitionLog for CoordinatorPartitionLog {
         let mut out = Vec::new();
         for b in batches {
             let mut buf = b.payload.to_vec();
-            // heimq owns the v2 wire layout; stamp the assigned base_offset.
-            stamp_base_offset(&mut buf, b.base_offset);
+            // heimq owns the v2 wire layout; stamp every RecordBatch in case a
+            // client produced concatenated batches in one partition payload.
+            stamp_all_base_offsets(&mut buf, b.base_offset);
             out.extend_from_slice(&buf);
         }
         Ok((out, hwm))
@@ -272,8 +367,16 @@ impl CoordinatorLogBackend {
         blob: Arc<dyn BlobStore>,
         cfg: FlushConfig,
     ) -> Self {
+        if std::env::var("FJORD_DURABLE_DEBUG_FLUSH_CONFIG").is_ok() {
+            eprintln!("fjord flush config: {cfg:?}");
+        }
         let sequencer = Arc::new(CoordinatorSequencer::new(Arc::clone(&coordinator)));
-        let engine = Arc::new(LogEngine::new(blob, sequencer, cfg.into(), "seg/"));
+        let engine = Arc::new(LogEngine::new(
+            blob,
+            sequencer,
+            cfg.into(),
+            unique_object_prefix(),
+        ));
         Self {
             coordinator,
             engine,
@@ -393,6 +496,19 @@ impl LogBackend for CoordinatorLogBackend {
         partition: i32,
         records: &'a [u8],
     ) -> AppendFuture<'a> {
+        if let Some(header) = RecordBatchHeader::peek(records) {
+            let engine = match self.partition_log(topic_name, partition) {
+                Ok(p) => Arc::clone(&p.engine),
+                Err(e) => return Box::pin(std::future::ready(Err(e))),
+            };
+            return produce_header_future(
+                engine,
+                topic_name,
+                partition,
+                Bytes::copy_from_slice(records),
+                header,
+            );
+        }
         let view = match RecordBatchView::from_bytes(records) {
             Ok(v) => v,
             Err(e) => return Box::pin(std::future::ready(Err(e))),
@@ -597,5 +713,59 @@ mod tests {
             Some(&b"hello-fjord"[..])
         );
         assert_eq!(decoded.records[0].offset, 0);
+    }
+
+    #[test]
+    fn fetch_stamps_each_concatenated_record_batch() {
+        use bytes::BytesMut;
+        use kafka_protocol::records::{
+            Compression, Record, RecordBatchDecoder, RecordBatchEncoder, RecordEncodeOptions,
+            TimestampType,
+        };
+
+        fn encode_batch(values: &[&str]) -> Vec<u8> {
+            let records: Vec<Record> = values
+                .iter()
+                .enumerate()
+                .map(|(i, value)| Record {
+                    transactional: false,
+                    control: false,
+                    partition_leader_epoch: 0,
+                    producer_id: -1,
+                    producer_epoch: -1,
+                    timestamp_type: TimestampType::Creation,
+                    offset: i as i64,
+                    sequence: -1,
+                    timestamp: 0,
+                    key: None,
+                    value: Some(Bytes::copy_from_slice(value.as_bytes())),
+                    headers: Default::default(),
+                })
+                .collect();
+            let mut buf = BytesMut::new();
+            RecordBatchEncoder::encode(
+                &mut buf,
+                records.iter(),
+                &RecordEncodeOptions {
+                    version: 2,
+                    compression: Compression::None,
+                },
+            )
+            .expect("encode batch");
+            buf.to_vec()
+        }
+
+        let mut raw = encode_batch(&["a", "b"]);
+        raw.extend_from_slice(&encode_batch(&["c", "d", "e"]));
+
+        stamp_all_base_offsets(&mut raw, 10);
+
+        let mut bytes = Bytes::from(raw);
+        let decoded = RecordBatchDecoder::decode_all(&mut bytes).expect("decode batches");
+        let offsets: Vec<i64> = decoded
+            .iter()
+            .flat_map(|set| set.records.iter().map(|r| r.offset))
+            .collect();
+        assert_eq!(offsets, vec![10, 11, 12, 13, 14]);
     }
 }

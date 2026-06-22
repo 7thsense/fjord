@@ -14,7 +14,8 @@ set -euo pipefail
 CLUSTER=fjord-e2e
 NS=fjord-chaos
 KAFKA_IMG=apache/kafka:3.8.1
-N=20000
+N="${N:-20000}"
+THROUGHPUT="${THROUGHPUT:-8000}"
 CHART="$(cd "$(dirname "${BASH_SOURCE[0]}")/../helm/fjord" && pwd)"
 
 log() { echo -e "\n=== $* ===" >&2; }
@@ -35,6 +36,7 @@ log "install fjord (multiBroker, 3 brokers) + bundled postgres + minio"
 $K create namespace "$NS" --dry-run=client -o yaml | $K apply -f -
 helm upgrade --install r "$CHART" -n "$NS" \
   --set mode=multiBroker --set replicaCount=3 --set autoscaling.enabled=false \
+  --set image.repository=fjord --set image.tag=dev \
   --set image.pullPolicy=IfNotPresent --set 'broker.createTopics={chaos:6}'
 $K -n "$NS" rollout status deploy/r-fjord-postgres --timeout=180s
 $K -n "$NS" rollout status deploy/r-fjord-minio --timeout=180s
@@ -46,7 +48,7 @@ BS="r-fjord.${NS}.svc.cluster.local:9092"
 log "produce $N sequenced records with Kafka's verifiable producer (acks=all)"
 $K -n "$NS" run vprod --image="$KAFKA_IMG" --restart=Never --command -- \
   /opt/kafka/bin/kafka-verifiable-producer.sh --bootstrap-server "$BS" \
-  --topic chaos --max-messages "$N" --throughput 8000 --acks -1 >/dev/null 2>&1
+  --topic chaos --max-messages "$N" --throughput "$THROUGHPUT" --acks -1 >/dev/null 2>&1
 $K -n "$NS" wait --for=jsonpath='{.status.phase}'=Succeeded pod/vprod --timeout=180s \
   || $K -n "$NS" wait --for=jsonpath='{.status.phase}'=Failed pod/vprod --timeout=5s || true
 PROD_LOG="$($K -n "$NS" logs vprod 2>/dev/null)"

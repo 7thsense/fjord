@@ -66,11 +66,11 @@ spec:
               value: {{ .Values.objectStore.bucket | quote }}
             {{- end }}
             - name: FJORD_FLUSH_TIMEOUT_MS
-              value: {{ .Values.broker.flushTimeoutMs | quote }}
+              value: {{ .Values.broker.flushTimeoutMs | int | quote }}
             - name: FJORD_FLUSH_MAX_BYTES
-              value: {{ .Values.broker.flushMaxBytes | quote }}
+              value: {{ .Values.broker.flushMaxBytes | int | quote }}
             - name: FJORD_FLUSH_MAX_BATCHES
-              value: {{ .Values.broker.flushMaxBatches | quote }}
+              value: {{ .Values.broker.flushMaxBatches | int | quote }}
             {{- range $k, $v := .Values.broker.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}

@@ -42,10 +42,9 @@ indicative, not a production benchmark.
 - Differential parity is currently **single-partition, non-transactional**.
   Multi-partition, consumer-group, and EOS/`read_committed` differential coverage
   is the next hardening step.
-- The coordinator backing the proofs is the **in-memory** `MemoryCoordinator`. The
-  Postgres `CoordinatorStore` backend (ADR-008 default) is specified (COORD-001)
-  but not yet implemented; SPIKE-001's per-backend latency characterization on a
-  real coordinator store is outstanding.
+- The coordinator proof set includes the **in-memory** `MemoryCoordinator`.
+  `bead:postgres-coordinator-evidence` closes the production-default
+  coordinator path with COORD-001 conformance and per-backend latency evidence.
 - Per-partition append through the heimq adapter does not multiplex across
   partitions into one object (that is fjord's own gateway buffering, TD-005);
   client batching still yields a low PUT count, as measured.

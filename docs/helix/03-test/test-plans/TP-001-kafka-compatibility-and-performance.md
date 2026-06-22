@@ -24,7 +24,8 @@ necessary but not sufficient.
 > TP-003 makes each one checkable against a known-good reference and defines the
 > Phase-4 parity/performance/cost stop condition.
 
-This plan is design-time only. No implementation exists yet.
+This plan is the compatibility and performance contract. Implementation work is
+closed only by executable tests and evidence tied to the scenarios below.
 
 ## Test Levels
 
@@ -131,14 +132,17 @@ Every performance claim must record:
 - retention/compaction settings,
 - full command line for Kafka tools.
 
-## Known Gaps
+## Implementation Closure Beads
 
-- Coordination state lives in the pluggable central coordinator (ADR-008 /
-  COORD-001, default Postgres); per-backend commit latency confirmed by SPIKE-001.
-- Leader semantics: stateless brokers + central coordinator; the Metadata leader
-  is a routing/cache-locality hint, not a write-correctness boundary (ADR-008).
-- The build/no-build differentiation review against WarpStream-class systems is
-  not complete (gates defined in the build/no-build validation checklist;
-  first review before M3).
-- Transactions and read-committed isolation are not designed.
-- Security tests await the TLS/SASL/ACL design.
+- `bead:kafka-diff-multipartition`: O1 differential covers explicit
+  multi-partition produce/fetch and watermarks.
+- `bead:kafka-diff-offsets`: O1 differential covers committed-offset resume
+  through standard consumer groups.
+- `bead:kafka-diff-eos`: O1/O2/O5 differential covers transactions,
+  `read_committed`, abort filtering, and KIP-890-equivalent histories.
+- `bead:durable-fault-campaign`: Postgres plus S3-compatible object storage is
+  exercised under broker kill, coordinator restart/failover, object-store
+  timeout/error, stale metadata, cache loss, corrupt object, and crash between
+  object PUT and metadata commit.
+- `bead:security-matrix`: TLS/SASL/ACL behavior is covered by standard Kafka
+  clients once the L3 security surface is in scope.

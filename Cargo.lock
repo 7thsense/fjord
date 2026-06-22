@@ -1090,6 +1090,7 @@ dependencies = [
 name = "fjord-heimq-backend"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "bytes",
  "clap",
  "fjord-broker",

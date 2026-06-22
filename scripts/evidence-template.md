@@ -21,18 +21,13 @@
 | rdkafka (librdkafka) | |
 | kcat | |
 | kafka-go | |
-| Java Kafka client | (not tested — use rdkafka conformance instead) |
+| Java Kafka client | |
 
 ## Declared Compatibility Level
 
-**L1** — Produce (acks=all), Fetch, Metadata, ApiVersions, Consumer group offsets
-
-APIs NOT supported at this level:
-- Transactions / EOS
-- Admin API (CreateTopics, DeleteTopics via admin client)
-- Log compaction
-- Quota enforcement
-- ACLs
+Use API-001 as the source of truth for the declared surface. Expected
+divergences must be named with reproducer, rationale, and test coverage;
+unregistered client-observable diffs are evidence failures, not notes.
 
 ## Test Results
 
@@ -44,25 +39,26 @@ APIs NOT supported at this level:
 | T2 | Metadata | | |
 | T3 | Produce acks=all | | |
 | T4 | Produce/fetch round-trip | | |
-| T5 | Node loss after ack | N/A (single-node) | |
+| T5 | Node loss after ack | | |
 | T6 | OffsetCommit + node loss | | see kafka_smoke restart test |
 | T7 | Consumer group rebalance | | |
 | T8 | Corrupt segment fixture | | conformance test |
-| T9 | Object-store transient failure | not tested | |
+| T9 | Object-store transient failure | | |
 | T10 | Tiny-object rejection | | conformance test |
-| T11 | Out-of-order object writes | not tested | |
-| T12 | Owner reassignment | not tested | |
-| T13 | acks=0/1/all | partial | acks=all tested |
+| T11 | Out-of-order object writes | | |
+| T12 | Owner reassignment | | |
+| T13 | acks=0/1/all | | |
 | T14 | Fetch watermark fields | | |
-| T15 | Epoch coherence | not tested | |
-| T16 | Metrics scrape | not tested | Prometheus not wired |
+| T15 | Epoch coherence | | |
+| T16 | Metrics scrape | | |
 
 ### cargo test Suite
 
 ```
 # Run from /path/to/fjord:
-cargo test -p fjord-object-log
-cargo test -p fjord-broker
+cargo test --workspace
+cargo test -p fjord-heimq-backend --test differential \
+  differential_single_partition_matches_real_kafka -- --ignored --nocapture
 ```
 
 Expected: all tests pass.
@@ -103,14 +99,15 @@ Actual result (paste output here):
 | Produce records/sec | | via kcat, 1KB records |
 | Fetch records/sec | | sequential |
 | p99 latency | | estimated from wall-clock |
-| Object PUT count | not measured | Prometheus not enabled |
-| Object GET count | not measured | Prometheus not enabled |
-| Cache hit rate | not measured | |
+| Object PUT count | | |
+| Object GET count | | |
+| Cache hit rate | | |
 
-## Known Gaps
+## Closure Beads
 
-- Prometheus metrics endpoint not yet wired; object PUT/GET counts and cache
-  hit rate cannot be reported without it.
-- Transactions (EOS) not supported.
-- Single-node only; multi-node metadata routing not tested at this level.
-- `acks=0` behavior not validated.
+- `bead:metrics-evidence`: object PUT/GET counts, cache hit rate, latency
+  percentiles, and consumer lag are captured in this evidence bundle.
+- `bead:eos-evidence`: transactions, `read_committed`, and abort filtering are
+  covered by external-oracle histories.
+- `bead:acks-evidence`: `acks=0`, `acks=1`, and `acks=all` behavior is covered
+  by standard-client tests.

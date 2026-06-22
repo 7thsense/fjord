@@ -15,8 +15,8 @@ set -euo pipefail
 CLUSTER=fjord-e2e
 NS=fjord-chaos
 KAFKA_IMG=apache/kafka:3.8.1
-N=60000
-THROUGHPUT=1000   # ~60s of produce, spanning several pod kills
+N="${N:-60000}"
+THROUGHPUT="${THROUGHPUT:-1000}"   # ~60s of produce, spanning several pod kills
 CHART="$(cd "$(dirname "${BASH_SOURCE[0]}")/../helm/fjord" && pwd)"
 
 log() { echo -e "\n=== $* ===" >&2; }
@@ -41,6 +41,7 @@ log "install fjord (singleLogical, 3 replicas, Service-fronted) + postgres + min
 $K create namespace "$NS" --dry-run=client -o yaml | $K apply -f -
 helm upgrade --install r "$CHART" -n "$NS" \
   --set mode=singleLogical --set replicaCount=3 --set autoscaling.enabled=false \
+  --set image.repository=fjord --set image.tag=dev \
   --set image.pullPolicy=IfNotPresent --set 'broker.createTopics={chaos:6}'
 $K -n "$NS" rollout status deploy/r-fjord-postgres --timeout=180s
 $K -n "$NS" rollout status deploy/r-fjord-minio --timeout=180s

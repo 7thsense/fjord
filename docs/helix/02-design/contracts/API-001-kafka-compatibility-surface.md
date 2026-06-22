@@ -155,11 +155,12 @@ membership, ACLs, transactions, or admin APIs.
 
 "Fully Kafka-capable" needs a falsifiable boundary, not a vague aspiration. Every
 Kafka feature is classified **Accept** (in the parity surface; client-observable
-behavior must match Kafka), **Defer** (planned, with a milestone; not yet on the
-parity surface; client gets a correct "not supported yet" error, never silent
-wrong behavior), or **Excluded** (structurally not provided by this architecture;
-declared with a client-visible error and an entry in TP-003's expected-divergence
-register). Anything Accept that diverges on the produce/fetch/commit surface is a
+behavior must match Kafka), **Defer** (planned with a milestone; outside the
+current parity surface and represented by a client-visible unsupported response,
+never silent wrong behavior), or **Excluded** (structurally not provided by this
+architecture; declared with a client-visible error and an entry in TP-003's
+expected-divergence register). Anything Accept that diverges on the
+produce/fetch/commit surface is a
 parity *failure* (B-10), not a registrable divergence.
 
 | Feature | Class | Basis |
@@ -182,3 +183,8 @@ never silent wrong behavior. Excluded items have entries in TP-003's
 expected-divergence register with a rationale. This matrix is the frozen
 "supported surface" the B-10 parity gate measures against; changing a class
 requires an API-001 edit with review, not a test-config change.
+
+The executable copy of this boundary is the external-oracle suite in
+`crates/fjord-heimq-backend/tests/differential.rs` plus the standard-client
+smoke/conformance tests. Excluded items require client-visible errors and
+targeted tests, not silent omissions.
