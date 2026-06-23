@@ -60,35 +60,59 @@ fn env_string(name: &str, default: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| default.to_string())
 }
 
-fn durable_producer_config(bootstrap: &str) -> ClientConfig {
+#[derive(Clone, Debug)]
+struct ProducerSettings {
+    count: usize,
+    linger_ms: usize,
+    batch_size: usize,
+    queue_messages: usize,
+    queue_kbytes: usize,
+    message_max_bytes: usize,
+    max_inflight_requests: usize,
+    message_timeout_ms: usize,
+}
+
+impl ProducerSettings {
+    fn from_env() -> Self {
+        Self {
+            count: env_usize("FJORD_DURABLE_PRODUCER_COUNT", 1).max(1),
+            linger_ms: env_usize("FJORD_DURABLE_PRODUCER_LINGER_MS", 10),
+            batch_size: env_usize("FJORD_DURABLE_PRODUCER_BATCH_SIZE", 1_048_576),
+            queue_messages: env_usize("FJORD_DURABLE_PRODUCER_QUEUE_MESSAGES", 300_000),
+            queue_kbytes: env_usize("FJORD_DURABLE_PRODUCER_QUEUE_KBYTES", 524_288),
+            message_max_bytes: env_usize(
+                "FJORD_DURABLE_PRODUCER_MESSAGE_MAX_BYTES",
+                64 * 1024 * 1024,
+            ),
+            max_inflight_requests: env_usize("FJORD_DURABLE_PRODUCER_MAX_INFLIGHT_REQUESTS", 1_000),
+            message_timeout_ms: env_usize("FJORD_DURABLE_PRODUCER_MESSAGE_TIMEOUT_MS", 120_000),
+        }
+    }
+}
+
+fn durable_producer_config(bootstrap: &str, producer: &ProducerSettings) -> ClientConfig {
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", bootstrap)
         .set("acks", "all")
-        .set(
-            "batch.size",
-            env_usize("FJORD_DURABLE_PRODUCER_BATCH_SIZE", 1_048_576).to_string(),
-        )
-        .set(
-            "linger.ms",
-            env_usize("FJORD_DURABLE_PRODUCER_LINGER_MS", 10).to_string(),
-        )
+        .set("batch.size", producer.batch_size.to_string())
+        .set("linger.ms", producer.linger_ms.to_string())
         .set(
             "queue.buffering.max.messages",
-            env_usize("FJORD_DURABLE_PRODUCER_QUEUE_MESSAGES", 300_000).to_string(),
+            producer.queue_messages.to_string(),
         )
         .set(
             "queue.buffering.max.kbytes",
-            env_usize("FJORD_DURABLE_PRODUCER_QUEUE_KBYTES", 524_288).to_string(),
+            producer.queue_kbytes.to_string(),
         )
-        .set(
-            "message.max.bytes",
-            env_usize("FJORD_DURABLE_PRODUCER_MESSAGE_MAX_BYTES", 64 * 1024 * 1024).to_string(),
-        )
+        .set("message.max.bytes", producer.message_max_bytes.to_string())
         .set(
             "max.in.flight.requests.per.connection",
-            env_usize("FJORD_DURABLE_PRODUCER_MAX_INFLIGHT_REQUESTS", 1_000).to_string(),
+            producer.max_inflight_requests.to_string(),
         )
-        .set("message.timeout.ms", "120000");
+        .set(
+            "message.timeout.ms",
+            producer.message_timeout_ms.to_string(),
+        );
     cfg
 }
 
@@ -152,6 +176,72 @@ impl FaultProfile {
             Self::TransientS3 => "transient_s3",
             Self::PutAfterWrite => "put_after_write",
             Self::ReadRetry => "read_retry",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct GarageScaleSettings {
+    secret: String,
+    endpoint: String,
+    region: String,
+    bucket: String,
+    key_id: String,
+    records: usize,
+    partitions: usize,
+    record_size: usize,
+    in_flight: usize,
+    consume_deadline_secs: u64,
+    flush_linger_ms: usize,
+    flush_cfg: FlushConfig,
+    object_log_runtime_threads: usize,
+    disable_payload_signing: bool,
+    producer: ProducerSettings,
+    fault_profile: FaultProfile,
+    multipart_threshold: usize,
+    multipart_part: usize,
+}
+
+impl GarageScaleSettings {
+    fn from_env() -> Self {
+        assert!(
+            env_bool("FJORD_DURABLE_ONLY_GARAGE"),
+            "FJORD_DURABLE_SCALE_PROOF requires FJORD_DURABLE_ONLY_GARAGE=1"
+        );
+        let secret = std::env::var("FJORD_GARAGE_SECRET")
+            .expect("FJORD_DURABLE_SCALE_PROOF requires FJORD_GARAGE_SECRET");
+        let records = env_usize("FJORD_DURABLE_RECORDS", 1_000_000);
+        let flush_linger_ms = env_usize("FJORD_DURABLE_FLUSH_LINGER_MS", 0);
+        let flush_cfg = durable_flush_config();
+        let flush_inflight = flush_cfg.max_inflight_flushes;
+        Self {
+            secret,
+            endpoint: env_string("FJORD_GARAGE_ENDPOINT", "http://eldir.azgaard.home:3900"),
+            region: env_string("FJORD_GARAGE_REGION", "garage"),
+            bucket: env_string("FJORD_GARAGE_BUCKET", "fjord"),
+            key_id: env_string("FJORD_GARAGE_KEY_ID", "GKb60b75119f2ffd85518a31c2"),
+            records,
+            partitions: env_usize("FJORD_DURABLE_PARTITIONS", 12),
+            record_size: env_usize("FJORD_DURABLE_RECORD_SIZE", 1024),
+            in_flight: env_usize("FJORD_DURABLE_IN_FLIGHT", 4096),
+            consume_deadline_secs: std::env::var("FJORD_DURABLE_CONSUME_DEADLINE_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(|| tier_default_deadline(records)),
+            flush_linger_ms,
+            flush_cfg,
+            object_log_runtime_threads: env_usize(
+                "OBJECT_LOG_FLUSH_RUNTIME_THREADS",
+                flush_inflight,
+            ),
+            disable_payload_signing: env_bool("OBJECT_LOG_S3_DISABLE_PAYLOAD_SIGNING"),
+            producer: ProducerSettings::from_env(),
+            fault_profile: FaultProfile::from_env(),
+            multipart_threshold: env_usize(
+                "FJORD_DURABLE_S3_MULTIPART_THRESHOLD_BYTES",
+                16 * 1024 * 1024,
+            ),
+            multipart_part: env_usize("FJORD_DURABLE_S3_MULTIPART_PART_BYTES", 8 * 1024 * 1024),
         }
     }
 }
@@ -503,8 +593,11 @@ async fn produce_timed(
     record_size: usize,
     in_flight: usize,
 ) -> f64 {
-    let producer: FutureProducer = durable_producer_config(bootstrap)
-        .set("message.timeout.ms", "30000")
+    let producer_settings = ProducerSettings {
+        message_timeout_ms: 30_000,
+        ..ProducerSettings::from_env()
+    };
+    let producer: FutureProducer = durable_producer_config(bootstrap, &producer_settings)
         .create()
         .expect("producer");
     let payload = vec![b'x'; record_size];
@@ -618,11 +711,11 @@ async fn produce_scale_proof(
     partitions: usize,
     record_size: usize,
     in_flight: usize,
+    producer_settings: &ProducerSettings,
 ) -> (Vec<PartitionProof>, f64) {
-    let producer_count = env_usize("FJORD_DURABLE_PRODUCER_COUNT", 1).max(1);
-    let producers: Vec<FutureProducer> = (0..producer_count)
+    let producers: Vec<FutureProducer> = (0..producer_settings.count)
         .map(|_| {
-            durable_producer_config(bootstrap)
+            durable_producer_config(bootstrap, producer_settings)
                 .create()
                 .expect("producer")
         })
@@ -650,7 +743,7 @@ async fn produce_scale_proof(
             let key = record_key(partition, sequence);
             fill_record_value(&mut payload, partition, sequence, fast_payload);
             let digest_component = record_digest_component(partition, sequence, &payload);
-            let producer_index = i % producer_count;
+            let producer_index = i % producer_settings.count;
             let fut = producers[producer_index]
                 .send_result(
                     FutureRecord::to(topic)
@@ -969,20 +1062,7 @@ fn write_manifest(
     evidence: &Path,
     topic: &str,
     pg_schema_url: &str,
-    endpoint: &str,
-    bucket: &str,
-    n: usize,
-    partitions: usize,
-    record_size: usize,
-    in_flight: usize,
-    deadline_secs: u64,
-    flush_linger_ms: usize,
-    flush_max_bytes: usize,
-    flush_inflight: usize,
-    flush_max_buffered_bytes: usize,
-    producer_linger_ms: usize,
-    producer_batch_size: usize,
-    fault_profile: FaultProfile,
+    settings: &GarageScaleSettings,
 ) {
     write_text(
         &evidence.join("manifest.json"),
@@ -1003,28 +1083,44 @@ fn write_manifest(
                 "  \"flush_max_bytes\":{},\n",
                 "  \"flush_inflight\":{},\n",
                 "  \"flush_max_buffered_bytes\":{},\n",
+                "  \"object_log_runtime_threads\":{},\n",
+                "  \"disable_payload_signing\":{},\n",
+                "  \"producer_count\":{},\n",
                 "  \"producer_linger_ms\":{},\n",
                 "  \"producer_batch_size\":{},\n",
+                "  \"producer_message_max_bytes\":{},\n",
+                "  \"producer_max_inflight_requests\":{},\n",
+                "  \"producer_message_timeout_ms\":{},\n",
+                "  \"s3_multipart_threshold_bytes\":{},\n",
+                "  \"s3_multipart_part_bytes\":{},\n",
                 "  \"fault_profile\":\"{}\"\n",
                 "}}\n"
             ),
             json_escape(&git_sha()),
             json_escape(topic),
-            json_escape(endpoint),
-            json_escape(bucket),
+            json_escape(&settings.endpoint),
+            json_escape(&settings.bucket),
             json_escape(&schema_name_from_url(pg_schema_url)),
-            n,
-            partitions,
-            record_size,
-            in_flight,
-            deadline_secs,
-            flush_linger_ms,
-            flush_max_bytes,
-            flush_inflight,
-            flush_max_buffered_bytes,
-            producer_linger_ms,
-            producer_batch_size,
-            json_escape(fault_profile.as_str())
+            settings.records,
+            settings.partitions,
+            settings.record_size,
+            settings.in_flight,
+            settings.consume_deadline_secs,
+            settings.flush_linger_ms,
+            settings.flush_cfg.max_bytes,
+            settings.flush_cfg.max_inflight_flushes,
+            settings.flush_cfg.max_buffered_bytes,
+            settings.object_log_runtime_threads,
+            settings.disable_payload_signing,
+            settings.producer.count,
+            settings.producer.linger_ms,
+            settings.producer.batch_size,
+            settings.producer.message_max_bytes,
+            settings.producer.max_inflight_requests,
+            settings.producer.message_timeout_ms,
+            settings.multipart_threshold,
+            settings.multipart_part,
+            json_escape(settings.fault_profile.as_str())
         ),
     );
 }
@@ -1091,86 +1187,54 @@ fn write_replay_summary(
 }
 
 async fn durable_scale_proof(pg_url: &str) {
-    assert!(
-        env_bool("FJORD_DURABLE_ONLY_GARAGE"),
-        "FJORD_DURABLE_SCALE_PROOF requires FJORD_DURABLE_ONLY_GARAGE=1"
-    );
-    let secret = std::env::var("FJORD_GARAGE_SECRET")
-        .expect("FJORD_DURABLE_SCALE_PROOF requires FJORD_GARAGE_SECRET");
-    let endpoint = env_string("FJORD_GARAGE_ENDPOINT", "http://eldir.azgaard.home:3900");
-    let region = env_string("FJORD_GARAGE_REGION", "garage");
-    let bucket = env_string("FJORD_GARAGE_BUCKET", "fjord");
-    let key_id = env_string("FJORD_GARAGE_KEY_ID", "GKb60b75119f2ffd85518a31c2");
-    let n = env_usize("FJORD_DURABLE_RECORDS", 1_000_000);
-    let partitions = env_usize("FJORD_DURABLE_PARTITIONS", 12);
-    let record_size = env_usize("FJORD_DURABLE_RECORD_SIZE", 1024);
-    let in_flight = env_usize("FJORD_DURABLE_IN_FLIGHT", 4096);
-    let flush_linger_ms = env_usize("FJORD_DURABLE_FLUSH_LINGER_MS", 0);
-    let flush_cfg = durable_flush_config();
-    let flush_max_bytes = flush_cfg.max_bytes;
-    let flush_inflight = flush_cfg.max_inflight_flushes;
-    let flush_max_buffered_bytes = flush_cfg.max_buffered_bytes;
-    let producer_linger_ms = env_usize("FJORD_DURABLE_PRODUCER_LINGER_MS", 10);
-    let producer_batch_size = env_usize("FJORD_DURABLE_PRODUCER_BATCH_SIZE", 1_048_576);
-    let consume_deadline_secs = std::env::var("FJORD_DURABLE_CONSUME_DEADLINE_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or_else(|| tier_default_deadline(n));
-    let fault_profile = FaultProfile::from_env();
+    let settings = GarageScaleSettings::from_env();
     let evidence = evidence_dir();
     fs::create_dir_all(&evidence)
         .unwrap_or_else(|e| panic!("create evidence dir {}: {e}", evidence.display()));
 
-    let topic = format!("scale-proof-{}-{n}", std::process::id());
+    let topic = format!("scale-proof-{}-{}", std::process::id(), settings.records);
     let pg_schema_url = fresh_schema_url(pg_url, &topic);
-    write_manifest(
-        &evidence,
-        &topic,
-        &pg_schema_url,
-        &endpoint,
-        &bucket,
-        n,
-        partitions,
-        record_size,
-        in_flight,
-        consume_deadline_secs,
-        flush_linger_ms,
-        flush_max_bytes,
-        flush_inflight,
-        flush_max_buffered_bytes,
-        producer_linger_ms,
-        producer_batch_size,
-        fault_profile,
-    );
+    write_manifest(&evidence, &topic, &pg_schema_url, &settings);
     eprintln!(
-        "\n=== fjord durable scale proof ({n} x {record_size}B records, {partitions} partitions, fault_profile={}, evidence={}) ===",
-        fault_profile.as_str(),
+        "\n=== fjord durable scale proof ({} x {}B records, {} partitions, fault_profile={}, evidence={}) ===",
+        settings.records,
+        settings.record_size,
+        settings.partitions,
+        settings.fault_profile.as_str(),
         evidence.display()
     );
 
-    let multipart_threshold = env_usize(
-        "FJORD_DURABLE_S3_MULTIPART_THRESHOLD_BYTES",
-        16 * 1024 * 1024,
-    );
-    let multipart_part = env_usize("FJORD_DURABLE_S3_MULTIPART_PART_BYTES", 8 * 1024 * 1024);
     let base_blob: Arc<dyn BlobStore> = Arc::new(
-        S3BlobStore::new(&endpoint, &region, &bucket, &key_id, &secret)
-            .with_multipart(multipart_threshold, multipart_part),
+        S3BlobStore::new(
+            &settings.endpoint,
+            &settings.region,
+            &settings.bucket,
+            &settings.key_id,
+            &settings.secret,
+        )
+        .with_multipart(settings.multipart_threshold, settings.multipart_part),
     );
-    let faulting_blob = Arc::new(FaultingBlobStore::new(base_blob, fault_profile));
+    let faulting_blob = Arc::new(FaultingBlobStore::new(base_blob, settings.fault_profile));
     let blob: Arc<dyn BlobStore> = faulting_blob.clone();
 
     let coord1: Arc<dyn CoordinatorStore> =
         Arc::new(PgCoordinator::connect(&pg_schema_url).expect("pg connect"));
-    let running1 = start_fjord_running(&topic, partitions as i32, coord1, Arc::clone(&blob)).await;
+    let running1 = start_fjord_running(
+        &topic,
+        settings.partitions as i32,
+        coord1,
+        Arc::clone(&blob),
+    )
+    .await;
     let produce_started = Instant::now();
     let (proofs, produce_throughput) = produce_scale_proof(
         &running1.bootstrap,
         &topic,
-        n,
-        partitions,
-        record_size,
-        in_flight,
+        settings.records,
+        settings.partitions,
+        settings.record_size,
+        settings.in_flight,
+        &settings.producer,
     )
     .await;
     let produce_secs = produce_started.elapsed().as_secs_f64();
@@ -1193,7 +1257,7 @@ async fn durable_scale_proof(pg_url: &str) {
         Arc::new(PgCoordinator::connect(&pg_schema_url).expect("pg reconnect"));
     let running2 = start_fjord_running(
         &topic,
-        partitions as i32,
+        settings.partitions as i32,
         Arc::clone(&coord2),
         Arc::clone(&blob),
     )
@@ -1202,13 +1266,13 @@ async fn durable_scale_proof(pg_url: &str) {
     let mut summary = replay_scale_proof(
         &running2.bootstrap,
         &topic,
-        partitions,
+        settings.partitions,
         &proofs,
-        record_size,
-        consume_deadline_secs,
+        settings.record_size,
+        settings.consume_deadline_secs,
         &mut failures,
     );
-    summary.high_watermarks = (0..partitions)
+    summary.high_watermarks = (0..settings.partitions)
         .map(|p| {
             coord2
                 .high_watermark(&topic, p as i32)
@@ -1240,7 +1304,7 @@ async fn durable_scale_proof(pg_url: &str) {
     running2.stop().await;
 
     assert_eq!(
-        summary.consumed, n,
+        summary.consumed, settings.records,
         "consumed count must equal acknowledged count"
     );
     assert_eq!(summary.duplicate_count, 0, "duplicate consumed keys");
@@ -1255,13 +1319,13 @@ async fn durable_scale_proof(pg_url: &str) {
         "partition digest mismatches"
     );
     if matches!(
-        fault_profile,
+        settings.fault_profile,
         FaultProfile::TransientS3 | FaultProfile::ReadRetry | FaultProfile::PutAfterWrite
     ) {
         assert!(
             faulting_blob.fault_count() > 0,
             "fault profile {} did not inject any faults",
-            fault_profile.as_str()
+            settings.fault_profile.as_str()
         );
     }
     eprintln!(

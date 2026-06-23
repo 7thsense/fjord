@@ -137,8 +137,11 @@ Default scale:
 | --- | ---: |
 | Records | 100,000,000 |
 | Partitions | 12 |
-| Record size | 64B |
-| Producer in-flight | 4096 |
+| Record size | 1024B |
+| Producer in-flight | 300,000 |
+| Object-log linger | 30,000ms |
+| Object-log flush parallelism | 16 |
+| Producer count | 12 |
 | Consume deadline | 14,400s |
 | Evidence root | `/tank/home/erik/fjord-evidence/<timestamp>-garage-scale` |
 
@@ -148,7 +151,7 @@ Run command:
 FJORD_PG_URL='postgres://fjord:fjord@HOST:5432/fjord' ./deploy/garage-scale.sh
 ```
 
-The script sources `deploy/chaos/garage.env` when present and enables `OBJECT_LOG_S3_RANGE_FALLBACK=1` by default.
+The script sources secrets and endpoints from `deploy/chaos/garage.env` when present. Non-secret operational defaults live in `deploy/config/garage-scale.env`, and alternate profiles can be selected with `FJORD_GARAGE_SCALE_CONFIG`.
 
 ## Current Known Limitations
 
