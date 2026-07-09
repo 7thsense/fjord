@@ -9,11 +9,11 @@ repository.workspace = true
 description = "CoordinatorStore trait (COORD-001) and in-memory reference backend for fjord"
 
 [dependencies]
-object-log = { git = "https://github.com/easel/object-log", rev = "bb5dd2e741910c5bdf44d985de8c75cb92186f11" }
-parking_lot = "0.12"
-tokio-postgres = { version = "0.7", optional = true }
-deadpool-postgres = { version = "0.14", optional = true }
-tokio = { version = "1", optional = true, features = ["rt-multi-thread"] }
+object-log.workspace = true
+parking_lot.workspace = true
+tokio-postgres = { workspace = true, optional = true }
+deadpool-postgres = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["rt-multi-thread"] }
 
 [features]
 default = []
@@ -25,4 +25,4 @@ default = []
 postgres-backend = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:tokio"]
 
 [dev-dependencies]
-proptest = "1"
+proptest.workspace = true

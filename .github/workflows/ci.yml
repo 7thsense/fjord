@@ -9,6 +9,16 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  dependency-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "1.82.0"
+          arguments: --all-features
+          command-arguments: --hide-inclusion-graph
+
   test:
     runs-on: ubuntu-latest
     steps:

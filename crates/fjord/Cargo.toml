@@ -13,18 +13,18 @@ name = "fjord"
 path = "src/main.rs"
 
 [dependencies]
-heimq = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372" }
-heimq-broker = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372" }
-fjord-coordinator = { path = "../fjord-coordinator", features = ["postgres-backend"] }
-object-log = { git = "https://github.com/easel/object-log", rev = "bb5dd2e741910c5bdf44d985de8c75cb92186f11", features = ["s3"] }
-fjord-heimq-backend = { path = "../fjord-heimq-backend" }
-fjord-broker = { path = "../fjord-broker" }
-tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive", "env"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1"
+heimq.workspace = true
+heimq-broker.workspace = true
+fjord-coordinator = { workspace = true, features = ["postgres-backend"] }
+object-log = { workspace = true, features = ["s3"] }
+fjord-heimq-backend.workspace = true
+fjord-broker.workspace = true
+tokio = { workspace = true, features = ["full"] }
+clap = { workspace = true, features = ["derive", "env"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+anyhow.workspace = true
 
 [dev-dependencies]
-rdkafka = { version = "0.36", features = ["cmake-build", "tokio"] }
-tokio = { version = "1", features = ["full"] }
+rdkafka.workspace = true
+tokio = { workspace = true, features = ["full"] }

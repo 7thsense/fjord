@@ -9,12 +9,12 @@ repository.workspace = true
 description = "heimq-broker backend (LogBackend/OffsetStore) over the fjord coordinator + object storage (ADR-008)"
 
 [dependencies]
-heimq-broker = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372" }
-fjord-coordinator = { path = "../fjord-coordinator" }
-object-log = { git = "https://github.com/easel/object-log", rev = "bb5dd2e741910c5bdf44d985de8c75cb92186f11", features = ["s3"] }
-bytes = "1"
-parking_lot = "0.12"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+heimq-broker.workspace = true
+fjord-coordinator.workspace = true
+object-log = { workspace = true, features = ["s3"] }
+bytes.workspace = true
+parking_lot.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [features]
 default = []
@@ -22,11 +22,11 @@ default = []
 postgres-backend = ["fjord-coordinator/postgres-backend"]
 
 [dev-dependencies]
-kafka-protocol = "0.15"
-fjord-broker = { path = "../fjord-broker" }
-heimq-testkit = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372" }
-heimq = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372", features = ["test-support"] }
-rdkafka = { version = "0.36", features = ["cmake-build", "tokio"] }
-clap = { version = "4", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
-async-trait = "0.1"
+kafka-protocol.workspace = true
+fjord-broker.workspace = true
+heimq-testkit.workspace = true
+heimq = { workspace = true, features = ["test-support"] }
+rdkafka.workspace = true
+clap = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+async-trait.workspace = true
