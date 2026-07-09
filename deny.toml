@@ -3,7 +3,7 @@ yanked = "deny"
 unmaintained = "all"
 unused-ignored-advisory = "deny"
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "paste is pulled transitively by kafka-protocol through heimq. RustSec lists no patched version; remove this ignore when heimq/kafka-protocol no longer resolves paste." },
+    { id = "RUSTSEC-2024-0436", reason = "paste is pulled by Heimq's vendored protocol crate. RustSec lists no patched paste version; remove this when Heimq no longer resolves paste." },
 ]
 
 [licenses]
@@ -38,7 +38,7 @@ unused = "deny"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-required-git-spec = "rev"
+required-git-spec = "any"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
     "https://github.com/easel/heimq",

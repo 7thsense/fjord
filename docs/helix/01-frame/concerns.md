@@ -24,7 +24,7 @@ Project concerns declare active cross-cutting context for downstream work.
 
 | Slot | Filler | Source |
 |------|--------|--------|
-| language-runtime | Rust (cargo workspace; `kafka-protocol`, `tokio`, `bytes`) | Operator decision — matches object-log and niflheim; recorded from implementation plan M1 |
+| language-runtime | Rust (cargo workspace; `heimq-protocol`, `tokio`, `bytes`) | Operator decision — matches object-log and niflheim; recorded from implementation plan M1 |
 | datastore (record data) | S3-compatible object storage via `object-log` | By design (ADR-001, ADR-005) |
 | coordinator (metadata/sequencing) | Pluggable, self-hosted; default Postgres (etcd/Dragonfly behind COORD-001; object-log internal topics optional) | By design (ADR-008, COORD-001); operator directive 2026-06-15 |
 | deploy-target | Self-hosted: stateless broker pool + object store + a coordinator the operator already runs; no hosted control plane | By design (PRD FR-32, ADR-008) |

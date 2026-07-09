@@ -49,7 +49,7 @@ validated against the fixture clients, when its handler lands.
 
 ## Niflheim-Informed Design Choices
 
-- Use `kafka-protocol` rather than hand-coded message structs.
+- Use `heimq-protocol` rather than hand-coded message structs.
 - Preserve `Bytes` payloads through the produce path.
 - Split reader and writer tasks with a bounded channel to support S3/object-log
   batch coalescing under durable write latency.
@@ -70,4 +70,3 @@ This keeps shared wire code independent from Fjord-specific state.
 - Protocol fixture tests for ApiVersions and unsupported version errors.
 - TCP smoke tests with `kcat -L` after Metadata exists.
 - Java client tests for produce/fetch once object-log integration exists.
-

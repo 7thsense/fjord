@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn append_fetch_round_trip_through_heimq_traits() {
         use bytes::BytesMut;
-        use kafka_protocol::records::{
+        use heimq_protocol::records::{
             Compression, Record, RecordBatchDecoder, RecordBatchEncoder, RecordEncodeOptions,
             TimestampType,
         };
@@ -734,7 +734,7 @@ mod tests {
     #[test]
     fn fetch_stamps_each_concatenated_record_batch() {
         use bytes::BytesMut;
-        use kafka_protocol::records::{
+        use heimq_protocol::records::{
             Compression, Record, RecordBatchDecoder, RecordBatchEncoder, RecordEncodeOptions,
             TimestampType,
         };

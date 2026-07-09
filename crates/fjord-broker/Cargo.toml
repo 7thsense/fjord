@@ -1,6 +1,6 @@
 [package]
 name = "fjord-broker"
-version = "0.1.2"
+version = "0.1.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -15,6 +15,6 @@ parking_lot.workspace = true
 
 [dev-dependencies]
 heimq-testkit.workspace = true
-kafka-protocol.workspace = true
+heimq-protocol.workspace = true
 bytes.workspace = true
 tokio = { workspace = true, features = ["full"] }

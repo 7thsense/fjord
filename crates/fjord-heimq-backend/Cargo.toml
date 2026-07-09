@@ -1,6 +1,6 @@
 [package]
 name = "fjord-heimq-backend"
-version = "0.1.2"
+version = "0.1.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -22,7 +22,7 @@ default = []
 postgres-backend = ["fjord-coordinator/postgres-backend"]
 
 [dev-dependencies]
-kafka-protocol.workspace = true
+heimq-protocol.workspace = true
 fjord-broker.workspace = true
 heimq-testkit.workspace = true
 heimq = { workspace = true, features = ["test-support"] }

@@ -13,7 +13,7 @@ its domain-specific ingestion behavior.
 
 ## Reusable Lessons
 
-- Use the upstream Rust `kafka-protocol` crate for Kafka messages and record
+- Use Heimq's vendored `heimq-protocol` crate for Kafka messages and record
   batch encoding/decoding.
 - Keep frame IO, header version selection, API version negotiation, SASL/TLS,
   handler dispatch, and error-frame construction separate from product logic.
@@ -54,4 +54,3 @@ Fjord's protocol gateway skeleton proves the API. The crate should provide:
 The crate should not depend on `object-log`, Niflheim, or Fjord coordinator
 state. Object-log remains storage semantics; a shared protocol crate remains
 wire semantics.
-

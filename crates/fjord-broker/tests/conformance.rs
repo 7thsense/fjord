@@ -282,7 +282,7 @@ fn fjord_cluster_view_routes_by_registry() {
 
 fn build_three_record_batch() -> Vec<u8> {
     use bytes::BytesMut;
-    use kafka_protocol::records::{Record, RecordBatchEncoder, RecordEncodeOptions};
+    use heimq_protocol::records::{Record, RecordBatchEncoder, RecordEncodeOptions};
     let records: Vec<Record> = (0..3)
         .map(|i| Record {
             transactional: false,
@@ -290,7 +290,7 @@ fn build_three_record_batch() -> Vec<u8> {
             partition_leader_epoch: 0,
             producer_id: -1,
             producer_epoch: -1,
-            timestamp_type: kafka_protocol::records::TimestampType::Creation,
+            timestamp_type: heimq_protocol::records::TimestampType::Creation,
             timestamp: i,
             sequence: i as i32,
             offset: i,
@@ -305,7 +305,7 @@ fn build_three_record_batch() -> Vec<u8> {
         records.iter(),
         &RecordEncodeOptions {
             version: 2,
-            compression: kafka_protocol::records::Compression::None,
+            compression: heimq_protocol::records::Compression::None,
         },
     )
     .expect("encode");

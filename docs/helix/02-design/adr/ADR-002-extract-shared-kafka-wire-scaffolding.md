@@ -25,8 +25,8 @@ surface is stable enough to share.
 
 ## Decision
 
-Fjord will first build a thin protocol gateway skeleton in-repo using the
-`kafka-protocol` crate and the lessons from Niflheim. After ApiVersions,
+Fjord will first build a thin protocol gateway skeleton in-repo using Heimq's
+vendored `heimq-protocol` crate and the lessons from Niflheim. After ApiVersions,
 Metadata, Produce, and Fetch skeleton handlers exist, the project will extract
 the reusable scaffolding into a sibling/shared crate if the interface remains
 product-neutral.
@@ -68,11 +68,12 @@ fixtures both need.
 Rejected. It would drag Niflheim's tenant/table routing, RBAC filtering, and
 WAL encoding into Fjord's dependency tree and invert the product boundary.
 
-### Rely on the upstream `kafka-protocol` crate alone
+### Rely on the upstream protocol crate alone
 
-Insufficient. The crate provides message types and codecs but not frame IO,
-header version selection, handler dispatch, SASL/TLS plumbing, error mapping,
-or client compatibility fixtures — the scaffolding both products share.
+Insufficient. The protocol crate provides message types and codecs but not
+frame IO, header version selection, handler dispatch, SASL/TLS plumbing, error
+mapping, or client compatibility fixtures — the scaffolding both products
+share.
 
 ## Consequences
 
@@ -81,4 +82,3 @@ or client compatibility fixtures — the scaffolding both products share.
 - object-log stays free of Kafka TCP protocol scope.
 - The extraction bead is blocked until Fjord has enough gateway code to prove
   the API shape.
-
