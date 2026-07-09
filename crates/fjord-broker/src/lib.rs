@@ -310,7 +310,7 @@ impl TopicLog for FjordTopicLog {
 
 static FJORD_CAPABILITIES: BackendCapabilities = BackendCapabilities {
     name: "fjord-memory",
-    version: "0.1.1",
+    version: "0.1.2",
     durability: Durability::None,
     atomic_append: AtomicAppendScope::Partition,
     survives_restart: false,
@@ -487,7 +487,7 @@ struct OffsetKey {
 
 static FJORD_OFFSET_CAPS: OffsetStoreCapabilities = OffsetStoreCapabilities {
     name: "fjord-memory",
-    version: "0.1.1",
+    version: "0.1.2",
     durability: Durability::None,
     survives_restart: false,
 };
@@ -835,7 +835,7 @@ impl FjordGroup {
 
 static FJORD_COORD_CAPS: GroupCoordinatorCapabilities = GroupCoordinatorCapabilities {
     name: "fjord-memory",
-    version: "0.1.1",
+    version: "0.1.2",
     durability: Durability::None,
     survives_restart: false,
     multi_node: false,

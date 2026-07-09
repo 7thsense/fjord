@@ -15,9 +15,9 @@ async-trait = "0.1"
 bytes = "1.10"
 clap = "4"
 deadpool-postgres = "0.14"
-fjord-broker = { path = "crates/fjord-broker", version = "0.1.1" }
-fjord-coordinator = { path = "crates/fjord-coordinator", version = "0.1.1" }
-fjord-heimq-backend = { path = "crates/fjord-heimq-backend", version = "0.1.1" }
+fjord-broker = { path = "crates/fjord-broker", version = "0.1.2" }
+fjord-coordinator = { path = "crates/fjord-coordinator", version = "0.1.2" }
+fjord-heimq-backend = { path = "crates/fjord-heimq-backend", version = "0.1.2" }
 heimq = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372", version = "0.1.0" }
 heimq-broker = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372", version = "0.1.0" }
 heimq-testkit = { git = "https://github.com/easel/heimq", rev = "cd17c1869c55ddd94b678e19df9ad08b21259372", version = "0.1.0" }

@@ -9,5 +9,5 @@ description: |
   Service address; the Service load-balances connections across pods and any
   pod serves any partition over the shared coordinator + bucket.
 type: application
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.2
+appVersion: "0.1.2"
