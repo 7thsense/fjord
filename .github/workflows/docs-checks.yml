@@ -43,7 +43,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libsasl2-dev libssl-dev libzstd-dev zlib1g-dev libcurl4-openssl-dev
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.91.1
       - uses: Swatinem/rust-cache@v2
       - name: Test documented release memory quick start
         run: ./scripts/docs-release-smoke.sh

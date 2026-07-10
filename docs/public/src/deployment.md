@@ -34,7 +34,7 @@ Keep the printed commit with test and deployment evidence. `main` can advance;
 the public compatibility matrix remains tied to the separately recorded
 v0.1.3 commit.
 
-Building from source requires Rust 1.88 or newer, `cmake`, a C compiler, and
+Building from source requires Rust 1.91.1 or newer, `cmake`, a C compiler, and
 the native libraries required by the Rust dependencies.
 
 ## Run the memory profile

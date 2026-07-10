@@ -17,6 +17,8 @@ All notable project changes are documented in this file. The format is based on
 
 - Project ownership and package references moved to the `7thsense` GitHub
   organization.
+- Corrected the effective minimum Rust version to 1.91.1 to match the locked
+  dependency graph.
 
 ## [0.1.3] - 2026-07-09
 

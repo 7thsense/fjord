@@ -14,7 +14,7 @@ are not currently available.
 ## Prerequisites
 
 - Git
-- Rust 1.88 or newer
+- Rust 1.91.1 or newer
 - A C toolchain and CMake
 - Optional: `kcat` for the command-line produce/consume example
 

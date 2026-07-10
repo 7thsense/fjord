@@ -17,7 +17,7 @@ intended behavior itself must change.
 
 ## Development Setup
 
-Fjord requires Rust 1.88 or newer. Some targets also need CMake and the native
+Fjord requires Rust 1.91.1 or newer. Some targets also need CMake and the native
 dependencies used to build `librdkafka` and TLS libraries. On Ubuntu, the full
 test suite uses `cmake`, `libsasl2-dev`, `libssl-dev`, `libzstd-dev`,
 `zlib1g-dev`, and `libcurl4-openssl-dev`.

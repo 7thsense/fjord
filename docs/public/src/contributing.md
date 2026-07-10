@@ -8,7 +8,7 @@ behavior itself should change.
 
 ## Prepare a checkout
 
-Install Rust 1.88 or newer and the native build dependencies used in CI:
+Install Rust 1.91.1 or newer and the native build dependencies used in CI:
 
 ```sh
 git clone https://github.com/7thsense/fjord.git
