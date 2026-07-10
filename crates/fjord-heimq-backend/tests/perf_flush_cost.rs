@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Flush-batching cost sweep (ADR-006 cost dial → S3 API cost). Every flush is
 //! ONE object = ONE S3 PUT, and S3 bills per PUT, so fewer/larger objects = lower
 //! cost. This sweeps the server-side flush timeout and reports, for a fixed

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # End-to-end test of the fjord Helm chart on a real (kind) cluster, for BOTH
 # topology modes:
 #   singleLogical — Deployment; metadata advertises 1 broker (the Service).

@@ -8,6 +8,10 @@ and the TP-003 parity tests. The repository includes a broker, Helm deployment
 assets, and external-oracle tests that compare the supported surface against
 standard Kafka clients.
 
+## License
+
+fjord is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
+
 ## Documents
 
 - [Product Vision](docs/helix/00-discover/product-vision.md)

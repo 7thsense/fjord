@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! End-to-end smoke test of the compiled `fjord` **binary** (not an in-process
 //! embedding): spawn the real process, then produce and consume through it with
 //! a standard rdkafka client. Proves the binary boots, wires its backends, binds

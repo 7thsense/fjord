@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 name: Release
 
 # On a version tag (v0.1.0, …): build + push the broker image to GHCR and

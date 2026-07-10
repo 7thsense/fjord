@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Exactly-once / transaction (EOS) invariants at the coordinator contract
 //! (TD-008). Drives the full transactional lifecycle — init transactional
 //! producer → produce (commit_object) → stage offsets → end_txn(commit|abort) —

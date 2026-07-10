@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # fjord broker image.
 #
 # fjord depends on heimq and object-log as git dependencies (public easel repos),

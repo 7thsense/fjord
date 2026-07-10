@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Stronger chaos validation: EXACTLY-ONCE under broker-kill chaos, using an
 # IDEMPOTENT Apache Kafka verifiable-producer (enable.idempotence=true) + Chaos
 # Mesh. Where verify-chaos.sh proved no-loss (at-least-once), this proves

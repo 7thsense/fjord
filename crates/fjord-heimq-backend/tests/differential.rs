@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Differential parity oracle (TP-003 O1): drive an identical workload against
 //! **real Apache Kafka** (in a container) and against fjord's coordinator-backed
 //! heimq server, then assert the consumed `(offset, key, value)` sequence is

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Fjord performance smoke harness (TP-001 performance level, TP-002 evidence).
 #
 # Usage:

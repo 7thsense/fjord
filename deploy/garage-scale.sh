@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Garage-backed durable-path scale lane.
 #
 # Runs one Garage-backed durable scale tier per invocation. Producer deliveries

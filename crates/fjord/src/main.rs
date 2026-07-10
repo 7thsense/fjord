@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! fjord broker — a stateless Kafka-compatible broker (ADR-008).
 //!
 //! The process holds no durable state: the log lives in object storage and all

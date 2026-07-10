@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Durable-path latency benchmark + flush/batching cost-dial sweep (TP-003 perf
 //! oracle; ADR-006 tail-latency-as-cost-control).
 //!

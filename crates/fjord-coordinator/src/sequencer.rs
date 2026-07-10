@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Adapter: drive the [`CoordinatorStore`] through object-log's [`Sequencer`]
 //! seam, so fjord's broker runs on `object_log::LogEngine` while all Kafka
 //! sequencing/idempotency/EOS/fencing stays here in the coordinator.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Full-stack end-to-end: a real rdkafka client → heimq server →
 //! `CoordinatorLogBackend` → **Garage S3** (eldir). The complete production path
 //! — standard Kafka protocol over real S3-compatible object storage.

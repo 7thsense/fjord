@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! EOS under fault injection (TD-008 + TP-003 DST). Wraps `MemoryCoordinator`
 //! with a fault injector that fails `commit_object` and `end_txn` in two ways —
 //! a pre-apply failure (nothing happened) and an ACK-LOSS (the op applied but

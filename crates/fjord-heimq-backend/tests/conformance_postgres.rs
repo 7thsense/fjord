@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! The heimq-testkit conformance suites run against the **Postgres**-backed
 //! coordinator backend — the ADR-008 production default. This is the same
 //! contract `conformance.rs` holds the in-memory coordinator to; passing it

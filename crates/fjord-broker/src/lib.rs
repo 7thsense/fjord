@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! fjord-broker: in-memory stub implementations of heimq-broker storage traits.
 //!
 //! Provides `FjordLog`, `FjordTopicLog`, `FjordPartitionLog`, `FjordOffsetStore`,

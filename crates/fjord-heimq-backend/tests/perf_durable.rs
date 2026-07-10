@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Durable-path performance benchmark (TP-003 perf oracle).
 //!
 //! The in-memory differential (differential.rs) showed fjord ~6x real Kafka

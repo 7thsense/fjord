@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Run like-for-like OpenMessaging Benchmark profiles for Fjord, Kafka, Redpanda.
 set -euo pipefail
 

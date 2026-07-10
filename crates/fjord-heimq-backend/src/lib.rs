@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! heimq-broker backend over the fjord coordinator + object storage (ADR-008).
 //!
 //! The serving surface is heimq's `LogBackend`/`PartitionLog`/`OffsetStore`

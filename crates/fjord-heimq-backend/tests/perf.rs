@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Throughput smoke benchmark for the coordinator-backed heimq server (TP-003
 //! performance evidence). Produces and consumes a batch of records through a
 //! real rdkafka client, reports produce/consume rates and the object (PUT)

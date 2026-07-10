@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Conformance for the Postgres `CoordinatorStore`, gated on `FJORD_PG_URL`.
 //!
 //! Strategy: `MemoryCoordinator` is already proven against the heimq-testkit

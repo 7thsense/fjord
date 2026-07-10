@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Consumer-group coordination invariants at the coordinator contract (TD-007):
 //! generation bumps on membership change, deterministic leader, offsets that
 //! survive a rebalance and stay isolated per group. Run against the in-memory

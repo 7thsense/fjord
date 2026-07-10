@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Proves server-side flush buffering coalesces with client concurrency.
 //!
 //! Many concurrent producers each produce with NO client-side batching

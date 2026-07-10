@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Multi-broker integration tests (ADR-008 diskless model).
 //!
 //! Stands up N in-process heimq `Server`s that share ONE `MemoryCoordinator` +

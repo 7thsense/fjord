@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Property-based tests for the coordinator (TP-003 PBT oracle).
 //!
 //! A simple in-process **model** is the oracle: random sequences of produce ops

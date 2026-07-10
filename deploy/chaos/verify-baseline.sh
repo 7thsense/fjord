@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Baseline (no chaos) of the EXTERNAL correctness oracle: Apache Kafka's own
 # kafka-verifiable-producer / kafka-verifiable-consumer (the reference
 # implementation's no-loss / contiguous-offset verifiers, used in Kafka's

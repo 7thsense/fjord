@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // @covers Slices 5-6 per-trait suites and TD-002 metadata routing prototype
 use fjord_broker::{
     FjordClusterView, FjordGroupCoordinator, FjordLog, FjordOffsetStore, FjordTopicRegistry,

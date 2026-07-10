@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! `CoordinatorStore` — the pluggable central-coordinator contract for fjord
 //! (COORD-001 / ADR-008).
 //!

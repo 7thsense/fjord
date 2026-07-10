@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Chaos validation of fjord on kind using EXTERNAL, off-the-shelf tools:
 #   * fault injection: Chaos Mesh (CNCF) — PodChaos kills broker pods on a schedule
 #   * correctness oracle: Apache Kafka's own kafka-verifiable-producer/consumer

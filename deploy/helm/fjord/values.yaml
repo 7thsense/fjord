@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Default values for fjord.
 #
 # Two profiles:
@@ -8,7 +10,7 @@
 image:
   # Published broker image (GHCR). For local kind runs, override with
   # --set image.repository=fjord --set image.tag=dev (see deploy/kind-e2e.sh).
-  repository: ghcr.io/telepathdata/fjord
+  repository: ghcr.io/7thsense/fjord
   tag: "" # defaults to the chart appVersion
   pullPolicy: IfNotPresent
 

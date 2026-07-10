@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! In-memory reference `CoordinatorStore` — the conformance baseline and the
 //! backend the gateway/tests use before Postgres lands (analogous to heimq's
 //! `MemoryLog`). A single mutex makes every mutating op a serialization point,

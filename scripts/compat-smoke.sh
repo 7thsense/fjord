@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Fjord Kafka compatibility smoke test harness (TP-001, TP-002).
 #
 # Usage:

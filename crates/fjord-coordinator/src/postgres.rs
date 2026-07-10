@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Postgres-backed [`CoordinatorStore`] — the ADR-008 default production
 //! backend. Feature-gated behind `postgres-backend`.
 //!

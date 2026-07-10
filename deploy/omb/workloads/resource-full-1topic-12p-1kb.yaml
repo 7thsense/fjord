@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 name: fjord resource full - 1 topic / 12 partitions / 1KiB
 topics: 1
 partitionsPerTopic: 12

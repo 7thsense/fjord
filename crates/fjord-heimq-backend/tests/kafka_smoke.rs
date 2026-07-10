@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Real-Kafka-client smoke test for the coordinator-backed heimq backend.
 //!
 //! Stands up an in-process heimq `Server` whose `LogBackend`/`OffsetStore` are

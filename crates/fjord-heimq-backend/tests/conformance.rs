@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Official heimq-testkit conformance suites run against the **coordinator
 //! backend** (CoordinatorLogBackend / CoordinatorOffsetStore — ADR-008). These
 //! are the same per-trait suites heimq runs against its own memory/postgres
