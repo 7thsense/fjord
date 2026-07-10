@@ -3,13 +3,10 @@
 apiVersion: v2
 name: fjord
 description: |
-  fjord — a stateless, Kafka-compatible broker with the durable log in object
-  storage and sequencing/metadata in a pluggable coordinator (Postgres by
-  default). Brokers carry no state, so they run as a Deployment + HPA: scaling
-  is just changing the replica count — no data to move, no partitions to
-  reassign. The cluster is presented to clients as one logical broker at the
-  Service address; the Service load-balances connections across pods and any
-  pod serves any partition over the shared coordinator + bucket.
+  Experimental Kafka-compatible broker with log data in object storage and
+  sequencing and metadata in a pluggable coordinator. The chart supports
+  single-logical-broker and multi-broker evaluation topologies; validate
+  compatibility and recovery behavior before deployment.
 type: application
-version: 0.1.3
-appVersion: "0.1.3"
+version: 0.1.4
+appVersion: "0.1.4"

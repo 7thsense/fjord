@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Documentation checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  site-and-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.4.52
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: lychee@0.24.2
+      - uses: azure/setup-helm@v5
+      - name: Build site, check internal links, and render current chart
+        run: DOCS_REQUIRE_TOOLS=1 ./scripts/docs-check.sh
+      - name: Render documented release chart
+        run: |
+          release="$(./scripts/docs-release-tag.sh)"
+          chart_root="$(mktemp -d)"
+          git archive "$release" deploy/helm/fjord | tar -x -C "$chart_root"
+          ./scripts/docs-helm-check.sh "$chart_root/deploy/helm/fjord"
+
+  release-memory-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libsasl2-dev libssl-dev libzstd-dev zlib1g-dev libcurl4-openssl-dev
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Test documented release memory quick start
+        run: ./scripts/docs-release-smoke.sh

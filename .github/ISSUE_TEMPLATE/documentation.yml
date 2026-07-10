@@ -1,0 +1,43 @@
+name: Documentation problem
+description: Report incorrect, missing, or unclear public documentation
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Page or section
+      description: Link to the page or name the file and heading.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Fjord version
+      placeholder: v0.1.3
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Explain what is incorrect, missing, stale, or hard to follow.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Provide command output, code references, or a minimal reproduction. Remove secrets.
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed correction
+      description: Describe the user outcome the documentation should support.
+  - type: checkboxes
+    id: claim
+    attributes:
+      label: Status claim
+      options:
+        - label: I checked whether this changes a capability or compatibility claim in docs/public/data/capabilities.json.
+          required: true

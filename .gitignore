@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 /target/
+/docs/public/book/
 
 # Local test credentials (never commit)
 /deploy/chaos/garage.env

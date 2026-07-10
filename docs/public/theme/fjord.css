@@ -1,0 +1,90 @@
+:root {
+  --fjord-ink: #172126;
+  --fjord-water: #176b72;
+  --fjord-water-dark: #0f5056;
+  --fjord-mist: #eef5f4;
+  --fjord-line: #cbdad8;
+  --content-max-width: 860px;
+}
+
+.light {
+  --bg: #fbfcfc;
+  --fg: var(--fjord-ink);
+  --sidebar-bg: #f2f6f5;
+  --sidebar-fg: #263438;
+  --sidebar-active: var(--fjord-water-dark);
+  --links: var(--fjord-water-dark);
+  --quote-bg: var(--fjord-mist);
+  --quote-border: var(--fjord-water);
+  --table-border-color: var(--fjord-line);
+}
+
+html {
+  letter-spacing: 0;
+}
+
+.content main {
+  max-width: var(--content-max-width);
+}
+
+.content main h1 {
+  border-bottom: 2px solid var(--fjord-line);
+  padding-bottom: 0.35em;
+}
+
+.content main h2 {
+  margin-top: 2em;
+}
+
+.content main table {
+  width: 100%;
+}
+
+.content main blockquote {
+  border-inline-start-width: 4px;
+}
+
+.api-entry,
+.capability-entry {
+  border-top: 1px solid var(--fjord-line);
+  padding: 0.75rem 0;
+}
+
+.api-entry:last-of-type,
+.capability-entry:last-of-type {
+  border-bottom: 1px solid var(--fjord-line);
+}
+
+.api-entry summary,
+.capability-entry summary {
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.api-entry summary span,
+.capability-entry summary span {
+  color: var(--icons);
+  white-space: nowrap;
+}
+
+.api-entry p,
+.capability-entry p {
+  margin: 0.65rem 0 0 1.25rem;
+}
+
+.capability-entry code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.menu-title {
+  color: var(--fjord-ink);
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .content main table {
+    display: block;
+    overflow-x: auto;
+  }
+}

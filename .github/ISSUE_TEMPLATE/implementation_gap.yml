@@ -1,0 +1,43 @@
+name: Design implementation gap
+description: Report behavior that does not meet Fjord's existing design
+title: "gap: "
+labels: ["implementation-gap"]
+body:
+  - type: input
+    id: design
+    attributes:
+      label: Governing design reference
+      description: Link or name the repository design record and relevant requirement.
+      placeholder: Kafka compatibility contract, Produce row
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed implementation gap
+      description: State the current observable behavior and how it differs from the design.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Deterministic acceptance criteria
+      description: List executable or objectively inspectable completion conditions.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: Name the tests, client oracle, or artifacts needed to close the gap.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing GitHub issues for this gap.
+          required: true
+        - label: This report implements an existing design; it is not a design-change request.
+          required: true

@@ -1,0 +1,1505 @@
+{
+  "schema_version": 1,
+  "documented_release": "v0.1.3",
+  "release_commit": "7b0daab0b18166216fbca2c046895f547436902c",
+  "status_definitions": {
+    "Design target": "Normative HELIX behavior intentionally outside active release delivery; no release availability is implied.",
+    "Verified": "Executable evidence at the documented release commit passes for the capability and scope stated by the entry.",
+    "Experimental": "Implementation or wiring exists, but the complete HELIX behavior or required release evidence is incomplete.",
+    "Unimplemented": "An active-scope HELIX requirement is absent from the documented release and is tracked by at least one bead."
+  },
+  "capabilities": [
+    {
+      "id": "memory-quick-start",
+      "title": "Single-process memory profile",
+      "status": "Verified",
+      "design_refs": [
+        "docs/helix/01-frame/feature-registry.md#fjord-feat-001-kafka-protocol-gateway",
+        "docs/helix/01-frame/feature-registry.md#fjord-feat-002-object-log-durable-data-plane"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord/tests/binary_smoke.rs::binary_boots_and_serves_produce_consume"
+        },
+        {
+          "kind": "release_command",
+          "ref": "cargo test --workspace at v0.1.3 (2026-07-10)"
+        }
+      ],
+      "bead_ids": [],
+      "limitations": [
+        "The memory coordinator and object store are ephemeral and single-process only."
+      ]
+    },
+    {
+      "id": "cli-configuration",
+      "title": "Broker CLI and environment configuration",
+      "status": "Verified",
+      "design_refs": [
+        "docs/helix/01-frame/feature-registry.md#fjord-feat-006-operations-and-observability"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord/src/main.rs"
+        },
+        {
+          "kind": "release_command",
+          "ref": "target/debug/fjord --help at v0.1.3 (2026-07-10)"
+        }
+      ],
+      "bead_ids": [],
+      "limitations": [
+        "Configuration validation does not establish production readiness of the selected backend."
+      ]
+    },
+    {
+      "id": "kafka-client-roundtrip-memory",
+      "title": "Standard-client produce and consume in memory profile",
+      "status": "Verified",
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md",
+        "docs/helix/03-test/test-plans/TP-003-verification-strategy-oracles-and-properties.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_produce_consume_roundtrip"
+        },
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_multi_partition_roundtrip"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "The tests exercise client-selected versions, not every advertised API version.",
+        "The Apache Kafka differential tests are ignored in the default workspace run."
+      ]
+    },
+    {
+      "id": "durable-produce-fetch",
+      "title": "Object-log-backed produce and fetch",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-003-object-log-data-plane.md",
+        "docs/helix/02-design/technical-designs/TD-005-multiplexed-write-path-and-sequencing.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs"
+        },
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/conformance.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-0a3a6ca3",
+        "fjord-f850b317"
+      ],
+      "limitations": [
+        "The default release test uses the in-memory object store (MemoryBlobStore); the S3 lane self-skips without external configuration.",
+        "Client ack modes are not passed through to the object-log durability level."
+      ]
+    },
+    {
+      "id": "flush-coalescing",
+      "title": "Server-side cross-request flush coalescing",
+      "status": "Verified",
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-005-multiplexed-write-path-and-sequencing.md",
+        "docs/helix/02-design/adr/ADR-006-tail-latency-mitigation-as-cost-control.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/flush_coalescing.rs::server_side_flush_coalesces_concurrent_producers"
+        }
+      ],
+      "bead_ids": [],
+      "limitations": [
+        "Release-mode durable-store latency and cost profiles remain experimental."
+      ]
+    },
+    {
+      "id": "acks-semantics",
+      "title": "Kafka acks=0, acks=1, and acks=all mapping",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#produce",
+        "docs/helix/01-frame/prd.md#subsystem-produce-path"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::produce_payload_future"
+        }
+      ],
+      "bead_ids": [
+        "fjord-f850b317"
+      ],
+      "limitations": [
+        "v0.1.3 hardcodes the strongest sequencing boundary (Ack::Sequenced) for all requests; acks=0 suppresses a response but does not select a distinct backend boundary."
+      ]
+    },
+    {
+      "id": "idempotent-producer-memory",
+      "title": "Basic idempotent producer behavior in memory profile",
+      "status": "Verified",
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md#idempotency-and-producer-epoch-fencing-b-6"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_idempotent_producer_no_duplicates"
+        },
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/properties.rs::idempotent_replay_never_duplicates"
+        }
+      ],
+      "bead_ids": [
+        "fjord-8f210aa3"
+      ],
+      "limitations": [
+        "Split-brain and leader-reassignment fencing through multiple broker processes is not yet evidenced."
+      ]
+    },
+    {
+      "id": "consumer-group-durability",
+      "title": "Durable consumer groups and offsets",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md",
+        "docs/helix/02-design/contracts/COORD-001-coordinator-store-contract.md#consumer-groups-single-key-transactional-per-group-group-is-the-unit"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_offsets_survive_restart"
+        },
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord/src/main.rs::Server::with_backends_and_cluster_view"
+        }
+      ],
+      "bead_ids": [
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "Committed offsets use the shared coordinator store (CoordinatorStore), but wire group membership and generation state use Heimq process memory.",
+        "The restart smoke retains the same in-memory coordinator and does not prove process-loss durability."
+      ]
+    },
+    {
+      "id": "transactional-eos",
+      "title": "Kafka transactions and exactly-once semantics",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md",
+        "docs/helix/02-design/contracts/COORD-001-coordinator-store-contract.md#transactions-eos-multi-key-transactional-required"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/eos.rs"
+        },
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/eos_faults.rs"
+        },
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::CAPS transactions=false"
+        }
+      ],
+      "bead_ids": [
+        "fjord-8ba53f1c",
+        "fjord-916a3bc4"
+      ],
+      "limitations": [
+        "Coordinator transaction primitives exist, but the Kafka wire path uses Heimq process-local transaction state and is not connected to Fjord's last stable offset or aborted ranges."
+      ]
+    },
+    {
+      "id": "multi-broker-routing",
+      "title": "Stateless multi-broker routing",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/adr/ADR-008-pluggable-central-coordinator.md",
+        "docs/helix/02-design/contracts/COORD-001-coordinator-store-contract.md#membership-leases-monotonic-lease-required-for-multi-broker"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/multi_broker.rs"
+        },
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord/src/main.rs::Args::peers"
+        }
+      ],
+      "bead_ids": [
+        "fjord-557e4c2b",
+        "fjord-8f210aa3"
+      ],
+      "limitations": [
+        "Tests share an in-memory coordinator and object store in one process.",
+        "Membership is a static peer list rather than coordinator-owned monotonic leases.",
+        "Leader-reassignment split-brain behavior lacks direct release evidence."
+      ]
+    },
+    {
+      "id": "postgres-coordinator",
+      "title": "Postgres coordinator backend",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/adr/ADR-008-pluggable-central-coordinator.md",
+        "docs/helix/02-design/contracts/COORD-001-coordinator-store-contract.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-coordinator/src/postgres.rs"
+        },
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/postgres_coordinator.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-630ceda4",
+        "fjord-ec70d236",
+        "fjord-8ba53f1c",
+        "fjord-557e4c2b"
+      ],
+      "limitations": [
+        "Postgres-gated tests return early when FJORD_PG_URL is unset; the v0.1.3 workspace audit did not exercise an external Postgres service.",
+        "The running wire group, transaction, and membership paths are not fully backed by the shared coordinator store (CoordinatorStore)."
+      ]
+    },
+    {
+      "id": "s3-object-storage",
+      "title": "S3-compatible durable object storage",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/adr/ADR-005-diskless-object-storage-architecture.md",
+        "docs/helix/02-design/technical-designs/TD-003-object-log-data-plane.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord/src/main.rs::build_object_store"
+        },
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/garage_e2e.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-0a3a6ca3",
+        "fjord-cc90b963"
+      ],
+      "limitations": [
+        "The Garage test self-skips without FJORD_GARAGE_ENDPOINT and did not exercise external storage in the v0.1.3 workspace audit.",
+        "Garage range-read compatibility and 100M durable-scale evidence remain open."
+      ]
+    },
+    {
+      "id": "local-read-cache",
+      "title": "Local aligned-chunk read cache with deduplicated concurrent reads",
+      "status": "Unimplemented",
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-006-fetch-read-path-and-cache.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord/src/main.rs::build_object_store"
+        }
+      ],
+      "bead_ids": [
+        "fjord-d1671f7b"
+      ],
+      "limitations": [
+        "v0.1.3 passes every fetch directly to the configured object store (BlobStore); no read cache or concurrent-request deduplication exists."
+      ]
+    },
+    {
+      "id": "l0-l1-layout-compaction",
+      "title": "Initial-to-reorganized object-layout compaction",
+      "status": "Unimplemented",
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-005-multiplexed-write-path-and-sequencing.md#compaction-l0-l1",
+        "docs/helix/02-design/adr/ADR-005-diskless-object-storage-architecture.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::CAPS compaction=false"
+        }
+      ],
+      "bead_ids": [
+        "fjord-83e29315"
+      ],
+      "limitations": [
+        "v0.1.3 writes a flat initial object layout (L0) and has no background rewrite or atomic switch to the reorganized layout (L1)."
+      ]
+    },
+    {
+      "id": "topic-retention",
+      "title": "Time and size based topic retention",
+      "status": "Design target",
+      "design_refs": [
+        "docs/helix/01-frame/prd.md#open-design-questions",
+        "docs/helix/02-design/technical-designs/TD-005-multiplexed-write-path-and-sequencing.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::CAPS retention=[None]"
+        }
+      ],
+      "bead_ids": [],
+      "limitations": [
+        "Coordinator truncate primitives exist, but the release backend declares no retention capability."
+      ]
+    },
+    {
+      "id": "key-log-compaction",
+      "title": "Kafka compacted topics",
+      "status": "Design target",
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#kafka-feature-capability-matrix-ar-2026-06-14b-n-b5"
+      ],
+      "evidence": [],
+      "bead_ids": [],
+      "limitations": [
+        "The design defers cleanup.policy=compact semantics; this is separate from reorganizing the object layout."
+      ]
+    },
+    {
+      "id": "security-enforcement",
+      "title": "TLS, SASL, ACL, and quota enforcement",
+      "status": "Design target",
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#compatibility-principles",
+        "docs/helix/01-frame/prd.md#open-design-questions"
+      ],
+      "evidence": [],
+      "bead_ids": [],
+      "limitations": [
+        "v0.1.3 does not advertise SASL APIs or expose Fjord TLS, authentication, authorization, ACL, or quota configuration."
+      ]
+    },
+    {
+      "id": "operational-metrics",
+      "title": "Operational metrics",
+      "status": "Unimplemented",
+      "design_refs": [
+        "docs/helix/01-frame/feature-registry.md#fjord-feat-006-operations-and-observability",
+        "docs/helix/01-frame/prd.md#subsystem-operations-performance-and-observability"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord/src/main.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-890a892f"
+      ],
+      "limitations": [
+        "v0.1.3 emits tracing logs but exposes no Fjord metrics endpoint or operational metric instruments."
+      ]
+    },
+    {
+      "id": "fault-and-history-proof",
+      "title": "Failure, fencing, and history-checker evidence",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/03-test/test-plans/TP-003-verification-strategy-oracles-and-properties.md",
+        "docs/helix/01-frame/prd.md#subsystem-operations-performance-and-observability"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/eos_faults.rs"
+        },
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/properties.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-8f210aa3",
+        "fjord-916a3bc4"
+      ],
+      "limitations": [
+        "Fault-injected coordinator tests pass, but broker split-brain and Jepsen or equivalent external histories remain open."
+      ]
+    },
+    {
+      "id": "performance-profiles",
+      "title": "Release-mode latency, throughput, and cost evidence",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/02-design/adr/ADR-006-tail-latency-mitigation-as-cost-control.md",
+        "docs/helix/03-test/test-plans/TP-001-kafka-compatibility-and-performance.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/perf.rs::coordinator_throughput_smoke"
+        },
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/tests/perf_durable.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-630ceda4",
+        "fjord-9a2d6ff9",
+        "fjord-cc90b963"
+      ],
+      "limitations": [
+        "The default workspace run omits durable external-store benchmarks and real Kafka or Redpanda comparator lanes."
+      ]
+    },
+    {
+      "id": "helm-deployment",
+      "title": "Helm deployment assets",
+      "status": "Experimental",
+      "design_refs": [
+        "docs/helix/01-frame/feature-registry.md#fjord-feat-006-operations-and-observability"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "deploy/helm/fjord"
+        },
+        {
+          "kind": "release_command",
+          "ref": "helm lint deploy/helm/fjord and helm template at v0.1.3 (2026-07-10)"
+        }
+      ],
+      "bead_ids": [
+        "fjord-e95ea154"
+      ],
+      "limitations": [
+        "The chart renders and lints, but this audit did not run a release-tagged Kubernetes deployment.",
+        "The release workflow uploads the packaged chart as a workflow artifact rather than a durable chart repository."
+      ]
+    },
+    {
+      "id": "ecosystem-certification",
+      "title": "Kafka Connect, MirrorMaker, and ecosystem certification",
+      "status": "Design target",
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#kafka-feature-capability-matrix-ar-2026-06-14b-n-b5"
+      ],
+      "evidence": [],
+      "bead_ids": [],
+      "limitations": [
+        "The design defers ecosystem certification and v0.1.3 contains no Fjord release gate for it."
+      ]
+    },
+    {
+      "id": "kafka-api-0-produce",
+      "title": "Produce",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 0,
+        "name": "Produce",
+        "min_version": 0,
+        "max_version": 11
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#produce",
+        "docs/helix/02-design/technical-designs/TD-001-kafka-protocol-gateway.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_produce_consume_roundtrip"
+        },
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/mod.rs::SUPPORTED_APIS"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-f850b317"
+      ],
+      "limitations": [
+        "The advertised legacy v0 floor is broader than the design's modern-client version floor, and the full v0-v11 range is not release-verified."
+      ]
+    },
+    {
+      "id": "kafka-api-1-fetch",
+      "title": "Fetch",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 1,
+        "name": "Fetch",
+        "min_version": 0,
+        "max_version": 12
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#fetch",
+        "docs/helix/02-design/technical-designs/TD-006-fetch-read-path-and-cache.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_produce_consume_roundtrip"
+        },
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/mod.rs::SUPPORTED_APIS"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-d1671f7b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "The full v0-v12 range is not release-verified; read_committed, cache, and external S3 read evidence are incomplete."
+      ]
+    },
+    {
+      "id": "kafka-api-2-list-offsets",
+      "title": "ListOffsets",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 2,
+        "name": "ListOffsets",
+        "min_version": 0,
+        "max_version": 9
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs"
+        },
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/mod.rs::SUPPORTED_APIS"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "Client smoke exercises ListOffsets indirectly; the advertised v0-v9 boundaries are not individually release-verified."
+      ]
+    },
+    {
+      "id": "kafka-api-3-metadata",
+      "title": "Metadata",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 3,
+        "name": "Metadata",
+        "min_version": 0,
+        "max_version": 12
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#metadata-and-leadership",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/multi_broker.rs::multi_broker_metadata_distributes_leaders"
+        },
+        {
+          "kind": "release_command",
+          "ref": "kcat -L against v0.1.3 memory broker (2026-07-10)"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-557e4c2b",
+        "fjord-8f210aa3"
+      ],
+      "limitations": [
+        "The advertised v0-v12 range is broader than release-tagged boundary evidence, and production membership is static."
+      ]
+    },
+    {
+      "id": "kafka-api-8-offset-commit",
+      "title": "OffsetCommit",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 8,
+        "name": "OffsetCommit",
+        "min_version": 0,
+        "max_version": 9
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#consumer-groups-and-offsets",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_offsets_survive_restart"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "Basic client commit works, but full v0-v9 coverage and process-loss group integration are incomplete."
+      ]
+    },
+    {
+      "id": "kafka-api-9-offset-fetch",
+      "title": "OffsetFetch",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 9,
+        "name": "OffsetFetch",
+        "min_version": 0,
+        "max_version": 9
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#consumer-groups-and-offsets",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_offsets_survive_restart"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "Basic client resume works, but full v0-v9 coverage and process-loss group integration are incomplete."
+      ]
+    },
+    {
+      "id": "kafka-api-10-find-coordinator",
+      "title": "FindCoordinator",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 10,
+        "name": "FindCoordinator",
+        "min_version": 0,
+        "max_version": 6
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#consumer-groups-and-offsets",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236",
+        "fjord-557e4c2b"
+      ],
+      "limitations": [
+        "Routing is based on static membership and the advertised v0-v6 boundaries are not individually release-verified."
+      ]
+    },
+    {
+      "id": "kafka-api-11-join-group",
+      "title": "JoinGroup",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 11,
+        "name": "JoinGroup",
+        "min_version": 0,
+        "max_version": 9
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "Wire group membership is process-local and the full v0-v9 range is not release-verified."
+      ]
+    },
+    {
+      "id": "kafka-api-12-heartbeat",
+      "title": "Heartbeat",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 12,
+        "name": "Heartbeat",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "Heartbeat state is process-local and the full v0-v4 range is not release-verified."
+      ]
+    },
+    {
+      "id": "kafka-api-13-leave-group",
+      "title": "LeaveGroup",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 13,
+        "name": "LeaveGroup",
+        "min_version": 0,
+        "max_version": 5
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-broker/src/lib.rs::FjordGroupCoordinator"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "Group state is process-local and no release-tagged standard-client test isolates the v0-v5 behavior."
+      ]
+    },
+    {
+      "id": "kafka-api-14-sync-group",
+      "title": "SyncGroup",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 14,
+        "name": "SyncGroup",
+        "min_version": 0,
+        "max_version": 5
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "Assignment state is process-local and the full v0-v5 range is not release-verified."
+      ]
+    },
+    {
+      "id": "kafka-api-15-describe-groups",
+      "title": "DescribeGroups",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 15,
+        "name": "DescribeGroups",
+        "min_version": 0,
+        "max_version": 5
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "The handler is advertised, but Fjord has no release-tagged standard-client evidence for the v0-v5 range."
+      ]
+    },
+    {
+      "id": "kafka-api-16-list-groups",
+      "title": "ListGroups",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 16,
+        "name": "ListGroups",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "The handler is advertised, but Fjord has no release-tagged standard-client evidence for the v0-v4 range."
+      ]
+    },
+    {
+      "id": "kafka-api-18-api-versions",
+      "title": "ApiVersions",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 18,
+        "name": "ApiVersions",
+        "min_version": 0,
+        "max_version": 3
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#compatibility-principles",
+        "docs/helix/02-design/technical-designs/TD-001-kafka-protocol-gateway.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_command",
+          "ref": "kcat sent ApiVersionRequest v3 and received ApiVersionResponse from a v0.1.3 memory broker (2026-07-10)"
+        },
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/mod.rs::SUPPORTED_APIS"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "The response advertises 35 APIs from handler presence and weak backend-name gates rather than Fjord semantic capability and evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-19-create-topics",
+      "title": "CreateTopics",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 19,
+        "name": "CreateTopics",
+        "min_version": 0,
+        "max_version": 7
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#p0-protocol-surfaces-to-specify",
+        "docs/helix/02-design/contracts/COORD-001-coordinator-store-contract.md#metadata"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::tests::topic_management_surfaces_metadata"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "Basic backend creation is tested, but the full v0-v7 wire range and restart behavior are not release-verified."
+      ]
+    },
+    {
+      "id": "kafka-api-20-delete-topics",
+      "title": "DeleteTopics",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 20,
+        "name": "DeleteTopics",
+        "min_version": 0,
+        "max_version": 6
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#p0-protocol-surfaces-to-specify",
+        "docs/helix/02-design/contracts/COORD-001-coordinator-store-contract.md#metadata"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::LogBackend::delete_topic"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "Deletion removes process-local topic state, but the shared coordinator store has no topic-deletion operation in v0.1.3."
+      ]
+    },
+    {
+      "id": "kafka-api-21-delete-records",
+      "title": "DeleteRecords",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 21,
+        "name": "DeleteRecords",
+        "min_version": 0,
+        "max_version": 2
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-005-multiplexed-write-path-and-sequencing.md",
+        "docs/helix/01-frame/prd.md#open-design-questions"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-coordinator/src/postgres.rs::truncate_before"
+        },
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::CAPS truncate=false"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-83e29315"
+      ],
+      "limitations": [
+        "A coordinator log-start primitive exists, but the release backend declares truncation and retention unsupported."
+      ]
+    },
+    {
+      "id": "kafka-api-22-init-producer-id",
+      "title": "InitProducerId",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 22,
+        "name": "InitProducerId",
+        "min_version": 0,
+        "max_version": 5
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md",
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-heimq-backend/tests/kafka_smoke.rs::coordinator_kafka_idempotent_producer_no_duplicates"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "Basic idempotent production works, but transactional IDs use process-local wire state and the full v0-v5 range is not verified."
+      ]
+    },
+    {
+      "id": "kafka-api-23-offset-for-leader-epoch",
+      "title": "OffsetForLeaderEpoch",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 23,
+        "name": "OffsetForLeaderEpoch",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8f210aa3"
+      ],
+      "limitations": [
+        "v0.1.3 does not persist the designed leader-epoch history in the shared coordinator store and lacks release-tagged v0-v4 boundary evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-24-add-partitions-to-txn",
+      "title": "AddPartitionsToTxn",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 24,
+        "name": "AddPartitionsToTxn",
+        "min_version": 0,
+        "max_version": 5
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "The advertised handler uses process-local transaction state and is not connected to shared participant records."
+      ]
+    },
+    {
+      "id": "kafka-api-25-add-offsets-to-txn",
+      "title": "AddOffsetsToTxn",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 25,
+        "name": "AddOffsetsToTxn",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "The advertised handler is not connected to pending offsets in the shared coordinator store."
+      ]
+    },
+    {
+      "id": "kafka-api-26-end-txn",
+      "title": "EndTxn",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 26,
+        "name": "EndTxn",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md#eos-on-a-transactional-coordinator-the-default-path-adr-008-build-this-first"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/eos.rs"
+        },
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "Coordinator end_txn is tested directly, but the advertised wire handler does not call it."
+      ]
+    },
+    {
+      "id": "kafka-api-27-write-txn-markers",
+      "title": "WriteTxnMarkers",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 27,
+        "name": "WriteTxnMarkers",
+        "min_version": 0,
+        "max_version": 1
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "The advertised handler is process-local and Fjord has no release-tagged marker materialization or parity evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-28-txn-offset-commit",
+      "title": "TxnOffsetCommit",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 28,
+        "name": "TxnOffsetCommit",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_test",
+          "ref": "crates/fjord-coordinator/tests/eos.rs"
+        },
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "Coordinator pending-offset primitives are tested directly, but the advertised wire handler is not connected to them."
+      ]
+    },
+    {
+      "id": "kafka-api-32-describe-configs",
+      "title": "DescribeConfigs",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 32,
+        "name": "DescribeConfigs",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#p0-protocol-surfaces-to-specify"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "Configuration state is process-local and the full v0-v4 range lacks Fjord release evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-33-alter-configs",
+      "title": "AlterConfigs",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 33,
+        "name": "AlterConfigs",
+        "min_version": 0,
+        "max_version": 2
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#p0-protocol-surfaces-to-specify"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "Configuration state is process-local and the full v0-v2 range lacks Fjord release evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-35-describe-log-dirs",
+      "title": "DescribeLogDirs",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 35,
+        "name": "DescribeLogDirs",
+        "min_version": 0,
+        "max_version": 4
+      },
+      "design_refs": [
+        "docs/helix/02-design/adr/ADR-005-diskless-object-storage-architecture.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "The handler is an administrative compatibility surface over a diskless backend and lacks Fjord release evidence for v0-v4."
+      ]
+    },
+    {
+      "id": "kafka-api-37-create-partitions",
+      "title": "CreatePartitions",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 37,
+        "name": "CreatePartitions",
+        "min_version": 0,
+        "max_version": 3
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#p0-protocol-surfaces-to-specify",
+        "docs/helix/02-design/contracts/COORD-001-coordinator-store-contract.md#metadata"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "Fjord has no release-tagged persistence or standard-client evidence for the advertised v0-v3 behavior."
+      ]
+    },
+    {
+      "id": "kafka-api-42-delete-groups",
+      "title": "DeleteGroups",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 42,
+        "name": "DeleteGroups",
+        "min_version": 0,
+        "max_version": 2
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "The advertised handler deletes process-local group state and lacks durable v0-v2 Fjord evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-43-elect-leaders",
+      "title": "ElectLeaders",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 43,
+        "name": "ElectLeaders",
+        "min_version": 0,
+        "max_version": 2
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#metadata-and-leadership",
+        "docs/helix/02-design/adr/ADR-008-pluggable-central-coordinator.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-557e4c2b"
+      ],
+      "limitations": [
+        "The handler is advertised without coordinator-backed assignment semantics or Fjord release evidence for v0-v2."
+      ]
+    },
+    {
+      "id": "kafka-api-44-incremental-alter-configs",
+      "title": "IncrementalAlterConfigs",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 44,
+        "name": "IncrementalAlterConfigs",
+        "min_version": 0,
+        "max_version": 1
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#p0-protocol-surfaces-to-specify"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b"
+      ],
+      "limitations": [
+        "Configuration state is process-local and lacks Fjord release evidence for v0-v1."
+      ]
+    },
+    {
+      "id": "kafka-api-47-offset-delete",
+      "title": "OffsetDelete",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 47,
+        "name": "OffsetDelete",
+        "min_version": 0,
+        "max_version": 0
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_source",
+          "ref": "crates/fjord-heimq-backend/src/lib.rs::CoordinatorOffsetStore::delete_offset"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-ec70d236"
+      ],
+      "limitations": [
+        "The storage operation exists, but Fjord has no release-tagged standard-client or raw-protocol evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-60-describe-cluster",
+      "title": "DescribeCluster",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 60,
+        "name": "DescribeCluster",
+        "min_version": 0,
+        "max_version": 1
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#metadata-and-leadership",
+        "docs/helix/02-design/adr/ADR-008-pluggable-central-coordinator.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-557e4c2b"
+      ],
+      "limitations": [
+        "Cluster membership is static and no Fjord release test isolates the advertised v0-v1 response."
+      ]
+    },
+    {
+      "id": "kafka-api-66-list-transactions",
+      "title": "ListTransactions",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 66,
+        "name": "ListTransactions",
+        "min_version": 0,
+        "max_version": 1
+      },
+      "design_refs": [
+        "docs/helix/02-design/technical-designs/TD-008-transactions-and-exactly-once.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-8ba53f1c"
+      ],
+      "limitations": [
+        "The handler reads process-local Heimq transaction state rather than the shared coordinator store and lacks Fjord release evidence."
+      ]
+    },
+    {
+      "id": "kafka-api-75-describe-topic-partitions",
+      "title": "DescribeTopicPartitions",
+      "status": "Experimental",
+      "advertised_kafka_api": {
+        "key": 75,
+        "name": "DescribeTopicPartitions",
+        "min_version": 0,
+        "max_version": 0
+      },
+      "design_refs": [
+        "docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md#metadata-and-leadership",
+        "docs/helix/02-design/technical-designs/TD-007-metadata-plane-state-and-kafka-semantics.md"
+      ],
+      "evidence": [
+        {
+          "kind": "release_dependency",
+          "ref": "heimq v0.1.2 dcbbff1 crates/heimq/src/protocol/router.rs"
+        }
+      ],
+      "bead_ids": [
+        "fjord-4d39382b",
+        "fjord-557e4c2b"
+      ],
+      "limitations": [
+        "The handler is advertised, but topic and broker metadata are not fully coordinator-owned and no Fjord release test isolates API v0."
+      ]
+    }
+  ]
+}

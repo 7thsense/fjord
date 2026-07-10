@@ -1,0 +1,49 @@
+name: Design change proposal
+description: Propose behavior that changes or extends Fjord's intended design
+title: "design: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: User need
+      description: Describe the concrete workflow or outcome that is not addressed today.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current design
+      description: Link or name the repository design record and explain the current intended behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed design change
+      description: State the externally observable behavior that should change.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Constraints and tradeoffs
+      description: Cover compatibility, durability, operations, performance, security, and migration effects that apply.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: Describe how the new behavior could be verified after design approval and implementation.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing design records and GitHub issues for this proposal.
+          required: true
+        - label: I understand this requires design review before implementation work is accepted.
+          required: true

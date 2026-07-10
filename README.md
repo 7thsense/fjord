@@ -1,37 +1,57 @@
 # fjord
 
-fjord is a Kafka-compatible streaming system whose durable log data is stored in
-object storage through the embeddable `object-log` core.
+Fjord is an experimental Kafka-compatible broker that stores log data in object
+storage and keeps sequencing and metadata in a separate coordinator. The
+repository contains the Rust broker, a Helm chart, and compatibility and
+failure-mode tests.
 
-Compatibility claims are intentionally limited to the API-001 supported surface
-and the TP-003 parity tests. The repository includes a broker, Helm deployment
-assets, and external-oracle tests that compare the supported surface against
-standard Kafka clients.
+Fjord is early-stage software. Check the
+[compatibility matrix](https://7thsense.github.io/fjord/compatibility.html) and
+[known limitations](https://7thsense.github.io/fjord/limitations.html) before
+evaluating it for a workload.
+
+## Quick Start
+
+Compatibility evidence in this documentation is anchored to `v0.1.3`. That tag
+predates the project's Apache-2.0 licensing and repository-metadata update: its
+Cargo metadata says MIT and the tag contains no license file. Use the current
+Apache-licensed `main` branch as the public source-acquisition path. Record the
+commit you evaluate because `main` can advance beyond the documented evidence.
+
+The local development profile keeps both coordination state and log data in
+memory. It is useful for evaluation and is not durable.
+
+```sh
+git clone https://github.com/7thsense/fjord.git
+cd fjord
+git rev-parse HEAD
+cargo run --locked -p fjord -- \
+  --host 127.0.0.1 \
+  --create-topic quickstart:1
+```
+
+The broker listens on `127.0.0.1:9092`. Connect a Kafka client to that bootstrap
+address and use the pre-created `quickstart` topic. See the
+[full quick start](https://7thsense.github.io/fjord/quick-start.html) for a
+produce/consume example and prerequisites.
+
+## Documentation
+
+- [Project documentation](https://7thsense.github.io/fjord/)
+- [Architecture](https://7thsense.github.io/fjord/architecture.html)
+- [Deployment](https://7thsense.github.io/fjord/deployment.html)
+- [Configuration](https://7thsense.github.io/fjord/configuration.html)
+- [Compatibility](https://7thsense.github.io/fjord/compatibility.html)
+- [Known limitations](https://7thsense.github.io/fjord/limitations.html)
+- [Release tags](https://github.com/7thsense/fjord/tags)
+
+The documentation source lives in [`docs/public`](docs/public/).
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a change. Report security
+issues according to [SECURITY.md](SECURITY.md).
 
 ## License
 
-fjord is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
-
-## Documents
-
-- [Product Vision](docs/helix/00-discover/product-vision.md)
-- [Prior Art Research](docs/helix/00-discover/research-prior-art.md)
-- [Niflheim Kafka Protocol Research](docs/helix/00-discover/research-niflheim-kafka-protocol.md)
-- [PRD](docs/helix/01-frame/prd.md)
-- [Concerns](docs/helix/01-frame/concerns.md)
-- [Feature Registry](docs/helix/01-frame/feature-registry.md)
-- [ADR-001: fjord as a Kafka-Compatible Object-Log System](docs/helix/02-design/adr/ADR-001-fjord-as-kafka-compatible-object-log-system.md)
-- [ADR-002: Extract Shared Kafka Wire Scaffolding](docs/helix/02-design/adr/ADR-002-extract-shared-kafka-wire-scaffolding.md)
-- [ADR-003: Client-Visible Leader Model](docs/helix/02-design/adr/ADR-003-client-visible-leader-model.md)
-- [ADR-004: Durable Metadata Path](docs/helix/02-design/adr/ADR-004-durable-metadata-path.md)
-- [SPIKE-001: object-log Metadata Latency](docs/helix/02-design/tech-spikes/SPIKE-001-object-log-metadata-latency.md)
-- [Build/No-Build Validation Checklist](docs/helix/01-frame/validation-checklist-build-no-build.md)
-- [Kafka Compatibility Contract Notes](docs/helix/02-design/contracts/API-001-kafka-compatibility-surface.md)
-- [TD-001: Kafka Protocol Gateway](docs/helix/02-design/technical-designs/TD-001-kafka-protocol-gateway.md)
-- [TD-002: Metadata, Routing, and Coordination](docs/helix/02-design/technical-designs/TD-002-metadata-routing-and-coordination.md)
-- [TD-003: object-log Data Plane](docs/helix/02-design/technical-designs/TD-003-object-log-data-plane.md)
-- [TD-004: Consumer Group Coordinator](docs/helix/02-design/technical-designs/TD-004-consumer-group-coordinator.md)
-- [TP-001: Kafka Compatibility and Performance Test Plan](docs/helix/03-test/test-plans/TP-001-kafka-compatibility-and-performance.md)
-- [TP-002: Implementation Increment Test Plan](docs/helix/03-test/test-plans/TP-002-implementation-increment-test-plan.md)
-- [TP-003: Verification Strategy](docs/helix/03-test/test-plans/TP-003-verification-strategy-oracles-and-properties.md)
-- [Implementation Plan](docs/helix/04-build/implementation-plan.md)
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

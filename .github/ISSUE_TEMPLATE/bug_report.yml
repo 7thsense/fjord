@@ -1,0 +1,78 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Fjord
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove credentials, database URLs, object-store keys, and customer data from logs.
+  - type: input
+    id: version
+    attributes:
+      label: Fjord version
+      description: Provide the release tag, commit SHA, and image digest when applicable.
+      placeholder: v0.1.3, 7b0daab..., sha256:...
+    validations:
+      required: true
+  - type: dropdown
+    id: topology
+    attributes:
+      label: Topology
+      options:
+        - Single process, memory backends
+        - Helm singleLogical
+        - Helm multiBroker
+        - Custom embedding or deployment
+    validations:
+      required: true
+  - type: input
+    id: backends
+    attributes:
+      label: Backends
+      description: Name the coordinator and object-store products without credentials.
+      placeholder: PostgreSQL 16 and AWS S3
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Kafka client
+      description: Include the client library and exact version.
+      placeholder: librdkafka 2.8.0 via kcat 1.7.1
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide the smallest complete sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized errors and logs.
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Relevant documentation or design reference
+      description: Link the public documentation or repository design record when known.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched open GitHub issues for the same behavior.
+          required: true
+        - label: I removed secrets and customer data from this report.
+          required: true
