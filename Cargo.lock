@@ -1057,7 +1057,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fjord"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-broker"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bytes",
  "heimq-broker",
@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-coordinator"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "deadpool-postgres",
  "object-log",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-heimq-backend"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2086,7 +2086,8 @@ dependencies = [
 [[package]]
 name = "object-log"
 version = "0.2.0"
-source = "git+https://github.com/easel/object-log?rev=bb5dd2e741910c5bdf44d985de8c75cb92186f11#bb5dd2e741910c5bdf44d985de8c75cb92186f11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6b2f6fcc801f44e15544d62f35281434377c1301f9f9b859e0cdc018b686dbe"
 dependencies = [
  "async-trait",
  "aws-sdk-s3",
@@ -2875,9 +2876,9 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
 
 [[package]]
 name = "spki"

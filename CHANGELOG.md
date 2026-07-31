@@ -6,6 +6,15 @@ All notable project changes are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-31
+
+### Changed
+
+- Depend on `object-log` 0.2.0 from crates.io instead of a git pin.
+- Map the new `object_log::FlushConfig::budget` field using
+  `BudgetConfig::default()` when configuring the heimq backend.
+- Aligned workspace crates and the Helm chart on version 0.1.5.
+
 ## [0.1.4] - 2026-07-10
 
 ### Added
@@ -49,7 +58,8 @@ All notable project changes are documented in this file. The format is based on
 - Initial tagged release of the Kafka-compatible Fjord broker, Postgres
   coordinator, object-log backend, container build, and Helm chart.
 
-[Unreleased]: https://github.com/7thsense/fjord/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/7thsense/fjord/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/7thsense/fjord/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/7thsense/fjord/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/7thsense/fjord/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/7thsense/fjord/compare/v0.1.1...v0.1.2

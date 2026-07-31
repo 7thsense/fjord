@@ -44,5 +44,4 @@ required-git-spec = "any"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
     "https://github.com/easel/heimq",
-    "https://github.com/easel/object-log",
 ]

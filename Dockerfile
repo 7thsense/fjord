@@ -2,13 +2,13 @@
 
 # fjord broker image.
 #
-# fjord depends on heimq and object-log as git dependencies (public easel repos),
-# so the build context is just this repo — cargo fetches the deps. Build with:
+# fjord depends on heimq (git) and object-log (crates.io); cargo fetches both.
+# Build with:
 #
 #   docker build -t fjord:dev .            # or: ./deploy/build-image.sh fjord:dev
 #
 # Note: .dockerignore excludes the local-only .cargo/config.toml path override so
-# the image always builds against the pinned git deps, not absent siblings.
+# the image always builds against the pinned deps, not absent siblings.
 
 FROM rust:1-bookworm AS builder
 # aws-lc-sys (rustls crypto for the S3 client) needs cmake + a C toolchain.

@@ -27,7 +27,8 @@ use heimq_broker::storage::{
     RecordBatchHeader, RecordBatchView, RetentionMode, TopicConfig, TopicLog,
 };
 use object_log::{
-    BlobStore, BufferStats, Durability as Ack, FlushConfig as EngineFlushConfig, LogEngine,
+    BlobStore, BudgetConfig, BufferStats, Durability as Ack, FlushConfig as EngineFlushConfig,
+    LogEngine,
 };
 use parking_lot::Mutex;
 use tokio::runtime::{Handle, Runtime};
@@ -76,6 +77,7 @@ impl From<FlushConfig> for EngineFlushConfig {
             linger: c.timeout,
             max_inflight_flushes: c.max_inflight_flushes,
             max_buffered_bytes: c.max_buffered_bytes,
+            budget: BudgetConfig::default(),
         }
     }
 }

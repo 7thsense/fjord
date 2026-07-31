@@ -17,14 +17,14 @@ async-trait = "0.1"
 bytes = "1.10"
 clap = "4"
 deadpool-postgres = "0.14"
-fjord-broker = { path = "crates/fjord-broker", version = "0.1.4" }
-fjord-coordinator = { path = "crates/fjord-coordinator", version = "0.1.4" }
-fjord-heimq-backend = { path = "crates/fjord-heimq-backend", version = "0.1.4" }
+fjord-broker = { path = "crates/fjord-broker", version = "0.1.5" }
+fjord-coordinator = { path = "crates/fjord-coordinator", version = "0.1.5" }
+fjord-heimq-backend = { path = "crates/fjord-heimq-backend", version = "0.1.5" }
 heimq = { git = "https://github.com/easel/heimq", tag = "v0.1.2", version = "0.1.0" }
 heimq-broker = { git = "https://github.com/easel/heimq", tag = "v0.1.2", version = "0.1.0" }
 heimq-protocol = { package = "heimq-protocol", git = "https://github.com/easel/heimq", tag = "v0.1.2", version = "0.15.1" }
 heimq-testkit = { git = "https://github.com/easel/heimq", tag = "v0.1.2", version = "0.1.0" }
-object-log = { git = "https://github.com/easel/object-log", rev = "bb5dd2e741910c5bdf44d985de8c75cb92186f11", version = "0.2.0" }
+object-log = "0.2.0"
 parking_lot = "0.12"
 proptest = "1"
 rdkafka = { version = "0.36", features = ["cmake-build", "tokio"] }

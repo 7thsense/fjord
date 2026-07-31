@@ -26,7 +26,8 @@ sudo apt-get install -y \
   libcurl4-openssl-dev
 ```
 
-Fjord pins Heimq and object-log revisions in `Cargo.toml` and `Cargo.lock`.
+Fjord pins Heimq (git) and object-log (crates.io) versions in `Cargo.toml` and
+`Cargo.lock`.
 Avoid changing those pins as a side effect of unrelated work.
 
 ## Make a focused change

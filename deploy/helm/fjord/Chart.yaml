@@ -8,5 +8,5 @@ description: |
   single-logical-broker and multi-broker evaluation topologies; validate
   compatibility and recovery behavior before deployment.
 type: application
-version: 0.1.4
-appVersion: "0.1.4"
+version: 0.1.5
+appVersion: "0.1.5"
