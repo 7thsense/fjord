@@ -46,6 +46,14 @@ cargo test --workspace
 cargo build --release -p fjord
 ```
 
+Helm/kind changes should also pass:
+
+```sh
+./scripts/docs-helm-check.sh
+# Optional local cluster e2e (Docker + kind + Helm):
+FJORD_BUILD_IMAGE=1 ./deploy/kind-e2e.sh
+```
+
 Keep each pull request narrow. Add tests for behavior changes, and update the
 public documentation when commands, configuration, compatibility, or limitations
 change. Do not include credentials, generated build output, or machine-local

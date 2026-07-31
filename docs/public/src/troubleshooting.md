@@ -71,11 +71,11 @@ missing S3 credentials, a missing bucket, or an advertised address that does
 not resolve. The TCP readiness probe does not validate external backends after
 startup.
 
-The chart's default image repository is historical. Build from a recorded commit
-of the current Apache-licensed `main` branch and override `image.repository`,
-`image.tag`, and `image.pullPolicy`, or provide another registry you have
-verified is readable from the cluster. The v0.1.3 tag remains the behavior-
-evidence anchor but predates the licensing and repository-metadata update.
+The chart defaults to `ghcr.io/7thsense/fjord` with tag equal to the chart
+`appVersion`. If anonymous pulls fail, either make the GHCR package public or
+override `image.repository` / `image.tag` / `image.pullPolicy` with a local
+build (`./deploy/kind-up.sh` does this automatically when the public image is
+unreachable).
 
 ## Data disappears after a restart
 

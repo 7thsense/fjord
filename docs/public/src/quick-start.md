@@ -1,24 +1,66 @@
 # Quick Start
 
-This guide builds the Apache-licensed `main` branch and starts one Fjord broker
-with an in-memory coordinator and in-memory object store. Compatibility evidence
-on this site remains anchored to `v0.1.3`. That tag predates the licensing and
-repository-metadata update: its Cargo metadata says MIT and it contains no
-license file. Record the `main` commit you evaluate because it can advance beyond
-the documented evidence.
+Two evaluation paths are supported:
 
-The guide exercises the simplest development topology and requires no external
-services. The published container package is not used because anonymous pulls
-are not currently available.
+1. **kind + Helm** — one command, bundled Postgres and MinIO, closest to a
+   deployment-shaped setup.
+2. **Local memory profile** — single process, no containers, no durability.
 
-## Prerequisites
+Compatibility evidence on this site remains anchored to `v0.1.3`. Record the
+source revision you evaluate.
+
+## kind one-liner
+
+Prerequisites: Docker, [kind](https://kind.sigs.k8s.io/), kubectl, Helm 3, and
+git.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/7thsense/fjord/main/deploy/kind-up.sh | bash
+```
+
+The script creates a kind cluster named `fjord`, loads a broker image (public
+release image when pullable, otherwise a local `docker build`), installs the
+chart with bundled Postgres + MinIO, pre-creates topic `quickstart`, and runs a
+produce/consume smoke test.
+
+From a checkout:
+
+```sh
+./deploy/kind-up.sh
+```
+
+Useful environment overrides:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `FJORD_CLUSTER` | `fjord` | kind cluster name |
+| `FJORD_NS` | `fjord` | Kubernetes namespace |
+| `FJORD_MODE` | `singleLogical` | `singleLogical` or `multiBroker` |
+| `FJORD_IMAGE` | auto | Force an image (`repo:tag`) |
+| `FJORD_RELEASE` | `0.1.5` | Release used for public image/chart URLs |
+
+To exercise **both** topology modes end-to-end (100-record round-trip each):
+
+```sh
+FJORD_BUILD_IMAGE=1 ./deploy/kind-e2e.sh
+```
+
+That script is the CI kind gate (`.github/workflows/ci.yml`).
+
+## Local memory profile
+
+This path builds the Apache-licensed `main` branch and starts one Fjord broker
+with an in-memory coordinator and in-memory object store. No external services
+are required.
+
+### Prerequisites
 
 - Git
 - Rust 1.91.1 or newer
 - A C toolchain and CMake
 - Optional: `kcat` for the command-line produce/consume example
 
-## Start the Broker
+### Start the Broker
 
 Clone the repository and record the source revision:
 
@@ -46,7 +88,7 @@ named `quickstart`. Leave this process running.
 > the topic, records, offsets, and metadata created during the session. Do not
 > use this profile to test persistence or multiple brokers.
 
-## Produce and Consume
+### Produce and Consume
 
 With `kcat` installed, open another terminal and produce a record:
 
@@ -65,7 +107,7 @@ Kafka client libraries use the same bootstrap address and topic. Consult the
 [compatibility matrix](compatibility.md) before relying on a particular API,
 version, or client workflow.
 
-## Run the Repository Smoke Test
+### Run the Repository Smoke Test
 
 The binary smoke test starts the same local topology and round-trips records
 through a standard Kafka client. On Debian or Ubuntu, install its native build

@@ -1,14 +1,40 @@
 # Deployment
 
-Fjord's public compatibility evidence is anchored to v0.1.3. That tag predates
-the Apache-2.0 licensing and repository-metadata update: its Cargo metadata says
-MIT and it contains no license file. Acquire source from the current
-Apache-licensed `main` branch and record the commit you evaluate. The repository
-contains the broker source, container build definition, and Helm chart.
+Fjord's public compatibility evidence is anchored to v0.1.3. Acquire source from
+the current Apache-licensed `main` branch and record the commit you evaluate.
+The repository contains the broker source, container build definition, and Helm
+chart.
 
-The v0.1.3 release workflow created a transient GitHub Actions chart artifact,
-not a durable chart repository. The chart in current source remains the public
-acquisition path.
+## Public package acquisition
+
+On each `v*` tag the release workflow:
+
+1. Builds and pushes `ghcr.io/7thsense/fjord:<version>`
+2. Packages the Helm chart and attaches `fjord-<version>.tgz` to the GitHub
+   Release
+3. Pushes the chart to OCI: `oci://ghcr.io/7thsense/charts/fjord`
+4. Best-effort marks both packages public (requires package admin)
+
+Install the chart:
+
+```sh
+# Release asset (always public when the GitHub Release exists)
+helm install fjord \
+  https://github.com/7thsense/fjord/releases/download/v0.1.5/fjord-0.1.5.tgz
+
+# OCI (requires the charts/fjord package to be public)
+helm install fjord oci://ghcr.io/7thsense/charts/fjord --version 0.1.5
+```
+
+Pull the broker image:
+
+```sh
+docker pull ghcr.io/7thsense/fjord:0.1.5
+```
+
+If anonymous image pulls fail, an org admin must set the GHCR package visibility
+to public (GitHub → Packages → `fjord` → Package settings), or run
+`./deploy/make-packages-public.sh` with a token that has package admin rights.
 
 ## Choose a backend profile
 
@@ -62,13 +88,25 @@ durability.
 
 ## Evaluate the Helm chart on kind
 
-Install Docker, kind, Helm, and kubectl. Build the current-source image locally and
-load it into kind:
+### One-liner
 
 ```sh
-docker build -t fjord:main .
+curl -fsSL https://raw.githubusercontent.com/7thsense/fjord/main/deploy/kind-up.sh | bash
+```
+
+Or from a checkout: `./deploy/kind-up.sh`. See [Quick Start](quick-start.md) for
+environment overrides.
+
+### Manual steps
+
+Install Docker, kind, Helm, and kubectl. Build or pull an image and load it into
+kind:
+
+```sh
+docker build -t fjord:dev .
+# or: docker pull ghcr.io/7thsense/fjord:0.1.5
 kind create cluster --name fjord
-kind load docker-image fjord:main --name fjord
+kind load docker-image fjord:dev --name fjord
 ```
 
 Install the checked-out chart with the bundled, ephemeral dependencies:
@@ -78,7 +116,7 @@ kubectl create namespace fjord
 helm upgrade --install fjord deploy/helm/fjord \
   --namespace fjord \
   --set image.repository=fjord \
-  --set image.tag=main \
+  --set image.tag=dev \
   --set image.pullPolicy=IfNotPresent \
   --set autoscaling.enabled=false \
   --set 'broker.createTopics={quickstart:1}'
@@ -87,10 +125,11 @@ kubectl rollout status deployment/fjord-fjord-minio -n fjord
 kubectl rollout status deployment/fjord-fjord -n fjord
 ```
 
-This route avoids relying on the historical image location recorded in the
-chart. The repository also includes `deploy/kind-e2e.sh`, which exercises both
-topology modes against a locally built `fjord:dev` image. These current-source
-runs do not replace the release-tagged compatibility evidence.
+### Automated e2e
+
+`deploy/kind-e2e.sh` exercises **both** topology modes (`singleLogical` and
+`multiBroker`) with a 100-record produce/consume check. CI runs this job on
+every push and pull request after building `fjord:dev`.
 
 ## Connect external backends
 

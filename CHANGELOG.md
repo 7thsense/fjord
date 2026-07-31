@@ -6,6 +6,22 @@ All notable project changes are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `deploy/kind-up.sh` one-liner for kind install + produce/consume smoke
+  (`curl … | bash` or from a clone).
+- CI `kind-e2e` job that builds the broker image and runs `deploy/kind-e2e.sh`
+  for both Helm topology modes.
+- Release workflow publishes the Helm chart as a GitHub Release asset and as
+  OCI (`oci://ghcr.io/7thsense/charts/fjord`), and best-effort marks GHCR
+  packages public.
+- `deploy/make-packages-public.sh` for maintainers to set package visibility.
+
+### Changed
+
+- Documented public chart/image acquisition and kind evaluation paths in the
+  README and deployment/quick-start docs.
+
 ## [0.1.5] - 2026-07-31
 
 ### Changed

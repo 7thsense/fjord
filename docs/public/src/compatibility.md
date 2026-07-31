@@ -95,7 +95,7 @@ advertises 35 Kafka APIs, but advertising is not verification.
 
 <details class="capability-entry">
 <summary><strong>Helm deployment assets</strong></summary>
-<p><strong>Current constraint:</strong> The chart renders and lints, but this audit did not run a release-tagged Kubernetes deployment. The release workflow uploads the packaged chart as a workflow artifact rather than a durable chart repository.</p>
+<p><strong>Current constraint:</strong> kind e2e exercises current source on CI; public matrix evidence remains anchored to the documented release commit rather than a release-tagged cluster deploy. Anonymous GHCR image/OCI chart pulls require package visibility to be public (best-effort in release workflow; may need org package admin). Bundled Postgres and MinIO use emptyDir and are evaluation-only.</p>
 </details>
 
 

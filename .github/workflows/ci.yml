@@ -60,5 +60,38 @@ jobs:
         with:
           context: .
           push: false
+          tags: fjord:dev
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Install the Helm chart on kind and round-trip records (both topology modes).
+  kind-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: azure/setup-helm@v4
+      - name: Build broker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: fjord:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Install kind and kubectl
+        run: |
+          curl -fsSL -o /tmp/kind \
+            "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          KVER="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
+          curl -fsSL -o /tmp/kubectl \
+            "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl"
+          sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+          kind version
+          kubectl version --client
+      - name: Helm chart kind e2e
+        run: |
+          chmod +x deploy/kind-e2e.sh
+          FJORD_IMAGE=fjord:dev ./deploy/kind-e2e.sh
