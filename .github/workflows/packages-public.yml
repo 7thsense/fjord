@@ -2,8 +2,8 @@
 
 name: Make packages public
 
-# One-shot / occasional maintainer action: mark GHCR packages public so
-# anonymous docker/helm pulls work. Safe to re-run.
+# Maintainer action: list GHCR packages visible to GITHUB_TOKEN and mark the
+# Fjord image/chart packages public when the API allows it.
 on:
   workflow_dispatch:
 
@@ -15,20 +15,51 @@ jobs:
   public:
     runs-on: ubuntu-latest
     steps:
-      - name: Set package visibility to public
+      - name: List and publish packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
         run: |
-          set -euo pipefail
-          for pkg in fjord charts%2Ffjord; do
-            echo "PATCH visibility public: $OWNER/$pkg"
+          set -uo pipefail
+          echo "=== org container packages ==="
+          gh api "/orgs/${OWNER}/packages?package_type=container&per_page=100" \
+            --jq '.[] | "\(.name)\tvisibility=\(.visibility // "?")\thtml=\(.html_url)"' \
+            || echo "(list org packages failed)"
+
+          set_public() {
+            local pkg="$1"
+            local encoded
+            encoded="$(printf '%s' "$pkg" | jq -sRr @uri)"
+            echo "PATCH visibility=public org/${OWNER}/container/${pkg}"
             if gh api --method PATCH \
               -H "Accept: application/vnd.github+json" \
-              "/orgs/${OWNER}/packages/container/${pkg}/visibility" \
+              "/orgs/${OWNER}/packages/container/${encoded}/visibility" \
               -f visibility=public; then
               echo "ok: $pkg"
-            else
-              echo "failed: $pkg (package may not exist yet or token lacks admin)" >&2
+              return 0
             fi
-          done
+            echo "warn: could not set $pkg public via API" >&2
+            return 1
+          }
+
+          rc=0
+          set_public "fjord" || rc=1
+          set_public "charts/fjord" || rc=1
+
+          if [[ "$rc" -ne 0 ]]; then
+            cat <<'EOF' >&2
+
+Could not make one or more packages public via the API.
+Do this once in the GitHub UI (package admin):
+
+  1. Open https://github.com/orgs/7thsense/packages
+  2. Open package "fjord" (and "charts/fjord" after the first OCI push)
+  3. Package settings → Change visibility → Public
+
+Until then, kind-up.sh builds a local image when the pull is denied, and the
+Helm chart is still public as a GitHub Release asset:
+  https://github.com/7thsense/fjord/releases/download/v0.1.5/fjord-0.1.5.tgz
+EOF
+          fi
+          # Do not fail the workflow: visibility is org-policy dependent.
+          exit 0
