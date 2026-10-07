@@ -10,7 +10,7 @@
 # Note: .dockerignore excludes the local-only .cargo/config.toml path override so
 # the image always builds against the pinned deps, not absent siblings.
 
-FROM rust:1-bookworm AS builder
+FROM rust:1.99.0-bookworm AS builder
 # aws-lc-sys (rustls crypto for the S3 client) needs cmake + a C toolchain.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends cmake \

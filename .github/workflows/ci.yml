@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          rust-version: "1.91.1"
+          rust-version: "1.99.0"
           arguments: --all-features
           command-arguments: --hide-inclusion-graph
 
@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libsasl2-dev libssl-dev libzstd-dev zlib1g-dev libcurl4-openssl-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
