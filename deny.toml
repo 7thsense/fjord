@@ -4,9 +4,7 @@
 yanked = "deny"
 unmaintained = "all"
 unused-ignored-advisory = "deny"
-ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "paste is pulled by Heimq's vendored protocol crate. RustSec lists no patched paste version; remove this when Heimq no longer resolves paste." },
-]
+ignore = []
 
 [licenses]
 confidence-threshold = 0.8
